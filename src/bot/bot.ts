@@ -932,7 +932,7 @@ export class DdnetBot {
       mode: this.mode,
       server: `${this.cfg.host}:${this.cfg.port}`,
       name: this.cfg.name,
-      targetName: this.targetId >= 0 ? this.nameOfLive(this.targetId) : null,
+      targetName: this.cfg.targetName ?? (this.targetId >= 0 ? this.nameOfLive(this.targetId) : null),
       targetDist: self && target ? Math.round(vdistance(self.pos, target.pos)) : null,
       walk: this.nav === null ? null : this.follow !== null && this.follow.waiting ? `goto ${this.follow.name.slice(0, 12)} …` : this.nav.brief(self ?? null, this.follow?.name.slice(0, 12)),
       offlineReason: this.phase === "online" ? "" : this.lastDisconnect,
@@ -1191,8 +1191,9 @@ export class DdnetBot {
         return "killed, respawning";
       }
       case "target": {
-        if (arg === "" || arg === "-") {
+        if (arg === "" || arg === "-" || arg.toLowerCase() === "off") {
           this.cfg.targetName = undefined;
+          this.targetId = -1;
           return "target cleared, back to picking automatically";
         }
 
@@ -1202,6 +1203,10 @@ export class DdnetBot {
         if (hits.length > 1) return `target: '${arg}' matches ${hits.length} players: ${hits.join(", ")} -- be more specific`;
         const name = hits.length === 1 ? hits[0] : arg;
         this.cfg.targetName = name;
+        this.mode = "fight";
+        this.acting = true;
+        this.endTrek();
+        this.dropNav("?target");
         return hits.length === 1 ? `target set to '${name}'` : `target set to '${name}' (nobody by that name is on the server now)`;
       }
       case "brain": {

@@ -68,6 +68,7 @@
 <div class="bottombar">
  <form id="f"><input type="text" id="i" placeholder="команда, например !stats или !try off" autocomplete="off"></form>
  <button id="send" type="button">Отправить</button>
+ <span class="targetbox"><input type="text" id="targetName" placeholder="цель: ник" autocomplete="off"><button class="ghost" id="targetSet" type="button" title="Бить выбранного игрока до сброса">🎯 цель</button><button class="ghost" id="targetOff" type="button" title="Вернуть автоматический выбор цели">× сбросить</button></span>
  <span class="sep"></span>
  <button class="ghost" data-cmd="/sethome" type="button" title="Запомнить текущую клетку как HOME">set HOME</button>
  <button class="ghost" data-cmd="/home" type="button" title="Идти к HOME">идти домой</button>
@@ -76,6 +77,7 @@
  <button class="ghost" data-cmd="/mode passive" type="button">не лезть</button>
  <button class="ghost" data-cmd="/stop" type="button">стоять</button>
  <button class="ghost" data-cmd="/go" type="button">играть</button>
+ <label class="quick-setting">смерть <input type="number" id="quickKillDelay" min="0" max="60" step="0.1" value="0" title="Задержка автоматической смерти в секундах"></label>
  <span class="sep"></span>
  <button class="ghost" data-cmd="!yes" type="button" title="Голос за в идущем голосовании (F3)">F3 за</button>
  <button class="ghost" data-cmd="!no" type="button" title="Голос против (F4)">F4 против</button>

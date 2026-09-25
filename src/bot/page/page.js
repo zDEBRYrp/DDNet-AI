@@ -95,6 +95,10 @@ if($('#s_update'))$('#s_update').addEventListener('click',async()=>{
  catch{$('#s_note').textContent=t('не вышло проверить')}
 });
 if($('#send'))$('#send').addEventListener('click',()=>$('#f').requestSubmit());
+$('#targetSet').addEventListener('click',()=>{const n=$('#targetName').value.trim();if(n)botCmd('!target '+n)});
+$('#targetOff').addEventListener('click',()=>{botCmd('!target off');$('#targetName').value=''});
+$('#targetName').addEventListener('keydown',(e)=>{if(e.key==='Enter'){e.preventDefault();$('#targetSet').click()}});
+$('#quickKillDelay').addEventListener('change',()=>botCmd('!killdelay '+($('#quickKillDelay').value||'0')));
 function human(n){return n>1048576?t('{n} МБ',{n:(n/1048576).toFixed(1)}):t('{n} КБ',{n:(n/1024).toFixed(0)})}
 
 let clipList=[],clipName='',clip=null,clipFrames=[],clipAt=0,clipPlaying=false,clipTimer=0,view2=null;
@@ -566,14 +570,16 @@ const REL=[['friend',t('тима'),t('Свои: бот их не трогает'
 function renderPlayers(f){
  if(!f)return;
  const list=(f.players&&f.players.length?f.players:f.tees).filter((p)=>p.id!==f.selfId&&p.name);
- const key=list.map((p)=>p.id+':'+p.name+':'+(p.clan||'')).join('|')+'#'+JSON.stringify(relations);
+ const key=list.map((p)=>p.id+':'+p.name+':'+(p.clan||'')).join('|')+'#'+JSON.stringify(relations)+'#'+String(lastStatus?.targetName||'');
  if(key===playersKey)return;playersKey=key;playersShown=list;
  if($('#pcount'))$('#pcount').textContent=list.length?'· '+list.length:'';
  $('#plist').innerHTML=list.length?list.map((p,i)=>{
   const mark=REL.map(([k])=>k).find((k)=>onList(k,p.name))||'';
+  const target=lastStatus?.targetName&&String(lastStatus.targetName).toLowerCase()===String(p.name).toLowerCase();
   const icon=view&&view.teeIcon?view.teeIcon(p,32):null;
   return '<div class="prow '+mark+'"><span class="pname" title="'+esc(p.name+(p.clan?' ['+p.clan+']':''))+'">'+(icon?'<img alt="" src="'+icon+'">':'')+esc(p.name)+(p.clan?'<small>'+esc(p.clan)+'</small>':'')+'</span>'+
    REL.map(([k,label,title])=>'<button type="button" class="'+(onList(k,p.name)?'on':'')+'" data-rel="'+k+'" data-i="'+i+'" title="'+esc(title)+'">'+esc(label)+'</button>').join('')+
+   '<button type="button" class="'+(target?'on target':'')+'" data-target data-i="'+i+'" title="'+esc(t('Бить этого игрока до сброса'))+'">🎯</button>'+
    '<button type="button" data-follow data-i="'+i+'" title="'+esc(t('Следить за ним'))+'">&#128065;</button></div>';
  }).join(''):'<div class="none">'+t('никого, кроме бота')+'</div>';
  if(list.length&&view&&view.teeIcon&&list.some((p)=>view.teeIcon(p,32)===null))playersKey='';
@@ -586,6 +592,7 @@ $('#plist').addEventListener('click',async(e)=>{
   try{const r=await(await fetch('/api/relation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({list:b.dataset.rel,name:p.name,on})})).json();if(r&&r.lists)relations=r.lists}catch{}
   playersKey='';renderPlayers(frame);return;
  }
+ if(b.dataset.target!==undefined){botCmd('!target '+p.name);$('#targetName').value=p.name;return}
  if(b.dataset.follow!==undefined){view.spectate(p.id);$('#spec').value=String(p.id);setFollow(true)}
 });
 pullRelations();setInterval(pullRelations,5000);
