@@ -13,6 +13,12 @@
 <div class="game-grid">
 <div class="card">
  <div class="view"><canvas id="cv"></canvas>
+  <div class="map-menu" id="mapmenu" hidden>
+   <div class="map-menu-coord"><span class="k">координаты</span><b id="mapcoords">(0, 0)</b></div>
+   <button type="button" data-map-action="copy">📋 скопировать координаты</button>
+   <button type="button" data-map-action="goto">➜ идти через GOTO</button>
+   <button type="button" data-map-action="home">⌂ установить HOME</button>
+  </div>
   <div class="voteban" id="voteban" hidden><span id="vtext"></span><button data-cmd="!yes" type="button">F3 за</button><button data-cmd="!no" type="button">F4 против</button></div>
   <div class="chat-ov" id="chatov">
    <div class="chat-lines" id="chatlines"></div>
@@ -65,6 +71,7 @@
  <span class="sep"></span>
  <button class="ghost" data-cmd="/sethome" type="button" title="Запомнить текущую клетку как HOME">set HOME</button>
  <button class="ghost" data-cmd="/home" type="button" title="Идти к HOME">идти домой</button>
+ <button class="ghost" data-cmd="/delhome" type="button" title="Удалить HOME и обычный режим">удалить HOME</button>
  <button class="ghost" data-cmd="/mode fight" type="button">драться</button>
  <button class="ghost" data-cmd="/mode passive" type="button">не лезть</button>
  <button class="ghost" data-cmd="/stop" type="button">стоять</button>
@@ -118,6 +125,7 @@
   <label>Имя<input type="text" id="s_name"></label>
   <label>Клан<input type="text" id="s_clan"></label>
   <label>Скин<input type="text" id="s_skin"></label>
+  <label>Ответ на упоминание<input type="text" id="s_mentionReply" placeholder="пусто: молчать"></label>
  </div>
  <div class="bar"><button id="s_save" type="button">Сохранить</button>
   <button class="ghost" id="s_update" type="button">Проверить обновление</button>

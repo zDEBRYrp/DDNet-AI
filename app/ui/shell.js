@@ -292,6 +292,7 @@ async function openSetup(mode) {
   $("#f-clan").value = s.clan;
   $("#f-skin").value = s.skin;
   $("#f-killDelay").value = String(s.killDelay ?? 0);
+  $("#f-mentionReply").value = s.mentionReply ?? "";
   $("#f-password").value = "";
   passClear = false;
   passSaved = s.hasPassword;
@@ -339,6 +340,7 @@ function readForm() {
     clan: $("#f-clan").value,
     skin: $("#f-skin").value,
     killDelay: $("#f-killDelay").value,
+    mentionReply: $("#f-mentionReply").value,
     brain: (document.querySelector("input[name=brain]:checked") || { value: "planner" }).value,
   };
   const pass = $("#f-password").value;

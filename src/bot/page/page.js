@@ -191,7 +191,7 @@ async function pullConfig(){
 }
 async function pullLaunch(){
  try{const l=await(await fetch('/api/launch')).json();
-  for(const k of ['server','name','clan','skin','ddnetData'])if($('#s_'+k))$('#s_'+k).value=l[k]||'';
+  for(const k of ['server','name','clan','skin','mentionReply','ddnetData'])if($('#s_'+k))$('#s_'+k).value=l[k]||'';
   if($('#s_ddnetData')&&!l.ddnetData)$('#s_ddnetData').placeholder=l.ddnetDataFound?t('найдено: {dir}',{dir:l.ddnetDataFound}):t('не нашёл: впиши путь к папке data');
   if($('#s_skinDownload'))$('#s_skinDownload').checked=l.skinDownload!=='off';
   if($('#s_gfx'))$('#s_gfx').textContent=(l.ddnetDataNote?tr(l.ddnetDataNote)+(l.ddnetDataFound?t('; нашёл сам: {dir}',{dir:l.ddnetDataFound}):'')+'. ':'')+(l.ddnetGraphics?t('графика DDNet найдена'):t('графики DDNet нет, рисую своей'));
@@ -201,7 +201,7 @@ async function pullLaunch(){
 
 pullLaunch();
 async function saveLaunch(){
- const body={};for(const k of ['server','name','clan','skin','ddnetData'])if($('#s_'+k))body[k]=$('#s_'+k).value.trim();
+ const body={};for(const k of ['server','name','clan','skin','mentionReply','ddnetData'])if($('#s_'+k))body[k]=$('#s_'+k).value.trim();
  if($('#s_skinDownload'))body.skinDownload=$('#s_skinDownload').checked?'on':'off';
  try{const r=await(await fetch('/api/launch',{method:'POST',body:JSON.stringify(body)})).json();
   const said=r.reply?tr(r.reply):t('сохранено');
@@ -415,13 +415,32 @@ for(const [id,key] of [['#troute','route'],['#ttraps','traps'],['#tnames','names
  $(id).addEventListener('click',()=>{const on=view.toggle(key);$(id).className='ghost'+(on?' on':'')});
 }
 let drag=null,moved=0;
+let mapMenuTile=null;
+function closeMapMenu(){mapMenuTile=null;$('#mapmenu').hidden=true}
+function openMapMenu(tx,ty,x,y){
+ mapMenuTile={x:tx,y:ty};$('#mapcoords').textContent=`(${tx}, ${ty})`;
+ const menu=$('#mapmenu');menu.hidden=false;
+ const r=cv.getBoundingClientRect();
+ menu.style.left=Math.max(8,Math.min(x+8,r.width-220))+'px';
+ menu.style.top=Math.max(8,Math.min(y+8,r.height-150))+'px';
+}
+for(const b of document.querySelectorAll('[data-map-action]'))b.addEventListener('click',async()=>{
+ const p=mapMenuTile;if(!p)return;
+ const cmd=b.dataset.mapAction==='goto'?`!goto ${p.x} ${p.y}`:b.dataset.mapAction==='home'?`/sethome ${p.x} ${p.y}`:'';
+ if(b.dataset.mapAction==='copy'){
+  try{await navigator.clipboard.writeText(`${p.x} ${p.y}`);$('#mapcoords').textContent=`(${p.x}, ${p.y}) ✓`;}catch{}
+  return;
+ }
+ if(cmd)await botCmd(cmd);closeMapMenu();
+});
+document.addEventListener('keydown',(e)=>{if(e.key==='Escape')closeMapMenu()});
 cv.addEventListener('pointerdown',(e)=>{drag={x:e.clientX,y:e.clientY};moved=0;cv.className='drag';try{cv.setPointerCapture(e.pointerId)}catch{}});
 cv.addEventListener('pointermove',(e)=>{if(!drag)return;moved+=Math.abs(e.clientX-drag.x)+Math.abs(e.clientY-drag.y);
  if(moved>4){view.pan(e.clientX-drag.x,e.clientY-drag.y);$('#follow').className='ghost'}drag={x:e.clientX,y:e.clientY}});
 cv.addEventListener('pointerup',(e)=>{
 
- if(drag&&moved<=4){const r=cv.getBoundingClientRect();const id=view.pick(e.clientX-r.left,e.clientY-r.top);
-  if(id>=0){const fr=view.latest();const self=fr?fr.selfId:-1;view.spectate(id===self?-1:id);$('#spec').value=String(id===self?-1:id);setFollow(true)}}
+ if(drag&&moved<=4){const r=cv.getBoundingClientRect();const sx=e.clientX-r.left,sy=e.clientY-r.top;const w=view.worldAt(sx,sy);
+  const tx=Math.floor(w.x/32),ty=Math.floor(w.y/32);openMapMenu(tx,ty,sx,sy)}
  drag=null;cv.className=''});
 cv.addEventListener('wheel',(e)=>{e.preventDefault();view.zoomBy(e.deltaY<0?1/1.1:1.1);$('#zoom').value=zoomToSlider(view.zoom())},{passive:false});
 

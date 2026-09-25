@@ -6,7 +6,7 @@ const path = require("node:path");
 const SETTINGS_FILE = "settings.json";
 const BRAINS = ["planner", "bold", "scripted"];
 
-const LIMITS = { name: 15, clan: 11, skin: 23, password: 64, server: 255, killDelay: 60 };
+const LIMITS = { name: 15, clan: 11, skin: 23, password: 64, server: 255, killDelay: 60, mentionReply: 120 };
 
 const DEFAULTS = {
 
@@ -17,6 +17,7 @@ const DEFAULTS = {
   password: "",
   brain: "planner",
   killDelay: 0,
+  mentionReply: "",
 };
 
 function settingsPath(root) {
@@ -73,8 +74,10 @@ function validateSetup(input) {
   if (!BRAINS.includes(brain)) errors.brain = "Неизвестный мозг";
   const rawKillDelay = src.killDelay === undefined || src.killDelay === "" ? DEFAULTS.killDelay : Number(src.killDelay);
   if (!Number.isFinite(rawKillDelay) || rawKillDelay < 0 || rawKillDelay > LIMITS.killDelay) errors.killDelay = `От 0 до ${LIMITS.killDelay} секунд`;
+  const mentionReply = str("mentionReply").trim();
+  if ([...mentionReply].length > LIMITS.mentionReply) errors.mentionReply = `Не длиннее ${LIMITS.mentionReply} символов`;
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  const value = { server, name, clan, skin, brain, killDelay: Math.round(rawKillDelay * 10) / 10 };
+  const value = { server, name, clan, skin, brain, killDelay: Math.round(rawKillDelay * 10) / 10, mentionReply };
   if (password !== undefined) value.password = password;
   return { ok: true, value };
 }
@@ -82,7 +85,7 @@ function validateSetup(input) {
 function writeSettings(root, value) {
   const cur = readSettings(root) ?? {};
   const out = {};
-  for (const k of ["server", "name", "clan", "skin", "password", "brain", "killDelay"]) {
+  for (const k of ["server", "name", "clan", "skin", "password", "brain", "killDelay", "mentionReply"]) {
     if (value[k] !== undefined) out[k] = value[k];
     else if (cur[k] !== undefined) out[k] = cur[k];
 
@@ -136,6 +139,7 @@ function publicSettings(settings) {
     skin: pick("skin"),
     brain: BRAINS.includes(s.brain) ? s.brain : DEFAULTS.brain,
     killDelay: Number.isFinite(Number(s.killDelay)) ? Math.max(0, Math.min(LIMITS.killDelay, Number(s.killDelay))) : DEFAULTS.killDelay,
+    mentionReply: typeof s.mentionReply === "string" ? s.mentionReply.slice(0, LIMITS.mentionReply) : DEFAULTS.mentionReply,
     hasPassword: typeof s.password === "string" && s.password !== "",
   };
 }

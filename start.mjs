@@ -277,6 +277,7 @@ ${line(56)}
     clan: clan || undefined,
     skin,
     killDelayMs: Number.isFinite(Number(saved.killDelay)) ? Math.max(0, Number(saved.killDelay) * 1000) : 0,
+    mentionReply: typeof saved.mentionReply === "string" ? saved.mentionReply : undefined,
     password: password || undefined,
     policy,
     scripted: !policyFile && !usePlanner,

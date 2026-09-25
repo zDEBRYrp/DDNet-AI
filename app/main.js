@@ -1001,7 +1001,8 @@ function main() {
           (before.password ?? "") === (saved.settings.password ?? "");
         const identityChanged = before.name !== saved.settings.name || before.clan !== saved.settings.clan || before.skin !== saved.settings.skin;
         const killDelayChanged = Number(before.killDelay ?? 0) !== Number(saved.settings.killDelay ?? 0);
-        const liveOnly = bot !== null && bot.state === "running" && sameConnection && before.brain === saved.settings.brain && (identityChanged || killDelayChanged);
+        const mentionReplyChanged = String(before.mentionReply ?? "") !== String(saved.settings.mentionReply ?? "");
+        const liveOnly = bot !== null && bot.state === "running" && sameConnection && before.brain === saved.settings.brain && (identityChanged || killDelayChanged || mentionReplyChanged);
         if (liveOnly) {
           try {
             if (identityChanged) {
@@ -1010,6 +1011,7 @@ function main() {
               await bot.command(`!skin ${saved.settings.skin}`);
             }
             if (killDelayChanged) await bot.command(`!killdelay ${saved.settings.killDelay}`);
+            if (mentionReplyChanged) await bot.command(`!reply ${saved.settings.mentionReply || "-"}`);
             addLog("app", t("изменения применены без перезапуска"));
           } catch {
             await restartBot();

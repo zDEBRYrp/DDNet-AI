@@ -96,6 +96,8 @@ table.ab td:first-child,table.ab th:first-child{text-align:left}
 table.ab a{color:var(--acc)}
 td.num{font-variant-numeric:tabular-nums}
 .view{position:relative;border-radius:10px;overflow:hidden;background:var(--sky);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.map-menu{position:absolute;z-index:8;display:flex;flex-direction:column;gap:4px;min-width:205px;padding:8px;background:rgba(22,28,40,.94);border:1px solid rgba(255,255,255,.2);border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.map-menu[hidden]{display:none}.map-menu-coord{display:flex;justify-content:space-between;gap:14px;padding:2px 4px 5px}.map-menu-coord b{font-variant-numeric:tabular-nums}.map-menu button{text-align:left;padding:6px 9px;font-size:12px;background:rgba(255,255,255,.12)}.map-menu button:hover{background:rgba(255,255,255,.24)}
 
 .chat-ov{position:absolute;left:0;bottom:0;width:min(66%,600px);pointer-events:none;padding:10px;display:flex;flex-direction:column;gap:4px}
 .chat-lines{max-height:170px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;font:12.5px/1.45 var(--font)}

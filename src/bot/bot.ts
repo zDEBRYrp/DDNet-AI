@@ -497,6 +497,7 @@ export type BotConfig = {
   password?: string;
   skin?: string;
   killDelayMs?: number;
+  mentionReply?: string;
   country?: number;
   colorBody?: number;
   colorFeet?: number;
@@ -1040,6 +1041,7 @@ export class DdnetBot {
           "  !clanwar [clan|off]    the same by clan tag  ·  !clanfriend [clan|off]",
           "  /sethome [x y]         save the home tile",
           "  /home                  walk back to the saved home",
+          "  /delhome               clear HOME and stop home-return behavior",
           "  .team [name|off]       whitelist a teammate; never target them",
           "  !clip [note]           save the last 30s to a file for review",
           "  !log on|off            show every debug line, or just the status bar",
@@ -1048,6 +1050,7 @@ export class DdnetBot {
           "  !clan <tag|->          change or clear the clan live",
           "  !skin <name>           change the skin live",
           "  !killdelay <seconds>   wait before automatic respawn-kill (0 = now)",
+          "  !reply <text|off>      reply when the bot's nick is mentioned; {name}/{text} work",
           "  !try <name>|off        switch a candidate planner setting on mid-game",
           "  !target <nick>         fight only this player, '!target -' to clear",
           "  !brain <name>          planner | net | scripted, swapped live",
@@ -1106,6 +1109,12 @@ export class DdnetBot {
         this.cfg.killDelayMs = Math.round(value * 10) / 10 * 1000;
         this.pendingKill = null;
         return `automatic kill delay: ${this.cfg.killDelayMs / 1000}s`;
+      }
+      case "reply": {
+        const value = arg.trim() === "-" || arg.trim().toLowerCase() === "off" ? "" : arg.trim();
+        if ([...value].length > 120) return "reply is limited to 120 characters";
+        this.cfg.mentionReply = value;
+        return value === "" ? "mention reply: off" : `mention reply: ${value}`;
       }
       case "goto":
         return this.gotoCommand(arg);
@@ -1285,6 +1294,12 @@ export class DdnetBot {
         }
         if (this.home === null) return "home is not set; use /sethome first";
         return this.gotoCommand(`${this.home.tx} ${this.home.ty}`, { throughFreeze: false });
+      }
+      case "delhome": {
+        this.home = null;
+        this.homeMap = "?";
+        const dropped = this.dropNav("/delhome");
+        return `${dropped}home cleared; normal behavior restored`;
       }
       case "clip": {
 
@@ -1773,6 +1788,7 @@ export class DdnetBot {
 
     if (listed(this.relations.ignore, who.trim().toLowerCase())) return;
     if (whisper) this.maybeAcceptDuel(msg, who);
+    this.maybeAnswerMention(msg, who, mentioned);
     this.maybeAnswerAccusation(msg);
     if (!this.cfg.chat) return;
     const text = msg.message.trim().toLowerCase();
@@ -1812,6 +1828,18 @@ export class DdnetBot {
 
       }
     }
+  }
+
+  private maybeAnswerMention(msg: TwMessage, who: string, mentioned: boolean): void {
+    const template = this.cfg.mentionReply?.trim() ?? "";
+    if (!mentioned || template === "" || msg.team === CHAT_WHISPER_RECV) return;
+    const text = template.replace(/\{name\}/gi, who).replace(/\{text\}/gi, msg.message.trim());
+    const delay = 350 + Math.floor(this.wanderRng.nextFloat() * 650);
+    const timer = setTimeout(() => {
+      this.replyTimers.delete(timer);
+      if (!this.stopping) this.say(text);
+    }, delay);
+    this.replyTimers.add(timer);
   }
 
   private say(text: string): boolean {
@@ -2697,7 +2725,7 @@ export class DdnetBot {
   commandNames(): string[] {
     return [
       "stop","go","war","friend","team","ignore","clanwar","clanfriend","sethome","home","clip","log","mode","try",
-      "target","brain","name","clan","skin","killdelay","goto","stats","where","emote","reset","kill","yes","no","votes","vote","spec","join","lang","quit","help","seek","say",
+      "target","brain","name","clan","skin","killdelay","reply","goto","stats","where","emote","reset","kill","yes","no","votes","vote","spec","join","lang","quit","help","seek","say","delhome",
     ];
   }
 
