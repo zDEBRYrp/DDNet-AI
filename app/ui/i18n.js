@@ -83,6 +83,7 @@
     "Сервер и мозг перезапустят бота; имя, клан, скин и задержка смерти применяются сразу.": "The server and brain restart the bot; name, clan, skin and death delay apply immediately.",
     "Ответ на упоминание": "Reply when mentioned",
     "пусто = молчать; {name}, {text}": "empty = stay silent; {name}, {text}",
+    "сохранено и применено": "saved and applied",
     "Сервер": "Server",
     "Выбрать из списка": "Pick from the list",
     "пусто: самый живой блок-сервер": "empty: the liveliest block server",

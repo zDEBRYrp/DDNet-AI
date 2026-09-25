@@ -180,6 +180,7 @@ document.addEventListener('keydown',(e)=>{
 async function pullConfig(){
  try{const c=await(await fetch('/api/config')).json();
   const st=lastStatus||{};
+  if($('#s_mode'))$('#s_mode').value=['fight','passive','hold'].includes(st.mode)?st.mode:'fight';
   $('#info').innerHTML=[
    cell(t('Сервер'),esc(st.server||'—')),cell(t('Состояние'),st.phase==='online'?t('в игре'):esc(st.offlineReason||st.phase||'—')),
    cell(t('Имя'),esc(st.name||'—')),cell(t('Карта'),esc(c.map||'—')),
@@ -192,6 +193,7 @@ async function pullConfig(){
 async function pullLaunch(){
  try{const l=await(await fetch('/api/launch')).json();
   for(const k of ['server','name','clan','skin','mentionReply','ddnetData'])if($('#s_'+k))$('#s_'+k).value=l[k]||'';
+  if($('#s_killDelay'))$('#s_killDelay').value=String(l.killDelay??0);
   if($('#s_ddnetData')&&!l.ddnetData)$('#s_ddnetData').placeholder=l.ddnetDataFound?t('найдено: {dir}',{dir:l.ddnetDataFound}):t('не нашёл: впиши путь к папке data');
   if($('#s_skinDownload'))$('#s_skinDownload').checked=l.skinDownload!=='off';
   if($('#s_gfx'))$('#s_gfx').textContent=(l.ddnetDataNote?tr(l.ddnetDataNote)+(l.ddnetDataFound?t('; нашёл сам: {dir}',{dir:l.ddnetDataFound}):'')+'. ':'')+(l.ddnetGraphics?t('графика DDNet найдена'):t('графики DDNet нет, рисую своей'));
@@ -202,9 +204,13 @@ async function pullLaunch(){
 pullLaunch();
 async function saveLaunch(){
  const body={};for(const k of ['server','name','clan','skin','mentionReply','ddnetData'])if($('#s_'+k))body[k]=$('#s_'+k).value.trim();
+ if($('#s_killDelay'))body.killDelay=$('#s_killDelay').value.trim();
  if($('#s_skinDownload'))body.skinDownload=$('#s_skinDownload').checked?'on':'off';
  try{const r=await(await fetch('/api/launch',{method:'POST',body:JSON.stringify(body)})).json();
-  const said=r.reply?tr(r.reply):t('сохранено');
+  if($('#s_mode'))await botCmd('!mode '+$('#s_mode').value);
+  if($('#s_killDelay'))await botCmd('!killdelay '+($('#s_killDelay').value.trim()||'0'));
+  if($('#s_mentionReply'))await botCmd('!reply '+($('#s_mentionReply').value.trim()||'-'));
+  const said=t('сохранено и применено');
   $('#s_note').textContent=said;if($('#s_gfx'))$('#s_gfx').textContent=said;}catch{$('#s_note').textContent=t('не сохранилось')}
  pullLaunch();
 }
