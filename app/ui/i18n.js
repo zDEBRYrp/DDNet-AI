@@ -80,6 +80,7 @@
     "Четыре поля, и бот пойдёт играть. Потом всё это меняется в настройках.": "Four fields and the bot goes to play. You can change all of it later in the settings.",
     "Пара полей, и бот пойдёт играть. Потом всё это меняется в настройках.": "A couple of fields and the bot goes to play. You can change all of it later in the settings.",
     "После сохранения бот перезапустится с новыми настройками.": "After saving, the bot restarts with the new settings.",
+    "Сервер и мозг перезапустят бота; имя, клан, скин и задержка смерти применяются сразу.": "The server and brain restart the bot; name, clan, skin and death delay apply immediately.",
     "Сервер": "Server",
     "Выбрать из списка": "Pick from the list",
     "пусто: самый живой блок-сервер": "empty: the liveliest block server",

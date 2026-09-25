@@ -276,6 +276,7 @@ ${line(56)}
     name,
     clan: clan || undefined,
     skin,
+    killDelayMs: Number.isFinite(Number(saved.killDelay)) ? Math.max(0, Number(saved.killDelay) * 1000) : 0,
     password: password || undefined,
     policy,
     scripted: !policyFile && !usePlanner,

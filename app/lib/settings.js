@@ -6,7 +6,7 @@ const path = require("node:path");
 const SETTINGS_FILE = "settings.json";
 const BRAINS = ["planner", "bold", "scripted"];
 
-const LIMITS = { name: 15, clan: 11, skin: 23, password: 64, server: 255 };
+const LIMITS = { name: 15, clan: 11, skin: 23, password: 64, server: 255, killDelay: 60 };
 
 const DEFAULTS = {
 
@@ -16,6 +16,7 @@ const DEFAULTS = {
   skin: "cammostripes",
   password: "",
   brain: "planner",
+  killDelay: 0,
 };
 
 function settingsPath(root) {
@@ -70,8 +71,10 @@ function validateSetup(input) {
   if (password !== undefined && password.length > LIMITS.password) errors.password = "Слишком длинный пароль";
   const brain = str("brain") || DEFAULTS.brain;
   if (!BRAINS.includes(brain)) errors.brain = "Неизвестный мозг";
+  const rawKillDelay = src.killDelay === undefined || src.killDelay === "" ? DEFAULTS.killDelay : Number(src.killDelay);
+  if (!Number.isFinite(rawKillDelay) || rawKillDelay < 0 || rawKillDelay > LIMITS.killDelay) errors.killDelay = `От 0 до ${LIMITS.killDelay} секунд`;
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  const value = { server, name, clan, skin, brain };
+  const value = { server, name, clan, skin, brain, killDelay: Math.round(rawKillDelay * 10) / 10 };
   if (password !== undefined) value.password = password;
   return { ok: true, value };
 }
@@ -79,7 +82,7 @@ function validateSetup(input) {
 function writeSettings(root, value) {
   const cur = readSettings(root) ?? {};
   const out = {};
-  for (const k of ["server", "name", "clan", "skin", "password", "brain"]) {
+  for (const k of ["server", "name", "clan", "skin", "password", "brain", "killDelay"]) {
     if (value[k] !== undefined) out[k] = value[k];
     else if (cur[k] !== undefined) out[k] = cur[k];
 
@@ -132,6 +135,7 @@ function publicSettings(settings) {
     clan: typeof s.clan === "string" ? s.clan : "",
     skin: pick("skin"),
     brain: BRAINS.includes(s.brain) ? s.brain : DEFAULTS.brain,
+    killDelay: Number.isFinite(Number(s.killDelay)) ? Math.max(0, Math.min(LIMITS.killDelay, Number(s.killDelay))) : DEFAULTS.killDelay,
     hasPassword: typeof s.password === "string" && s.password !== "",
   };
 }

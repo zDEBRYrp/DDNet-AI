@@ -978,6 +978,7 @@ function main() {
     });
     handle("setup:save", async (form) => {
       if (root === null) return { ok: false, errors: { server: t("Не найдена папка бота") } };
+      const before = settingsLib.readSettings(root) ?? {};
       const res = settingsLib.validateSetup(form);
       if (!res.ok) return { ok: false, errors: Object.fromEntries(Object.entries(res.errors).map(([k, v]) => [k, tr(v)])) };
       const firstRun = screenName() === "setup";
@@ -995,7 +996,26 @@ function main() {
 
       else if (firstRun) {
         if (await checkForeignBot()) startBot();
-      } else await restartBot();
+      } else {
+        const sameConnection = ((before.server === "auto" && saved.settings.server === "auto") || settingsLib.sameServer(before.server, saved.settings.server)) &&
+          (before.password ?? "") === (saved.settings.password ?? "");
+        const identityChanged = before.name !== saved.settings.name || before.clan !== saved.settings.clan || before.skin !== saved.settings.skin;
+        const killDelayChanged = Number(before.killDelay ?? 0) !== Number(saved.settings.killDelay ?? 0);
+        const liveOnly = bot !== null && bot.state === "running" && sameConnection && before.brain === saved.settings.brain && (identityChanged || killDelayChanged);
+        if (liveOnly) {
+          try {
+            if (identityChanged) {
+              await bot.command(`!name ${saved.settings.name}`);
+              await bot.command(`!clan ${saved.settings.clan || "-"}`);
+              await bot.command(`!skin ${saved.settings.skin}`);
+            }
+            if (killDelayChanged) await bot.command(`!killdelay ${saved.settings.killDelay}`);
+            addLog("app", t("изменения применены без перезапуска"));
+          } catch {
+            await restartBot();
+          }
+        } else await restartBot();
+      }
       return { ok: true };
     });
     handle("servers:list", (force) => fetchServers(force === true));

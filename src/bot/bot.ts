@@ -496,6 +496,7 @@ export type BotConfig = {
 
   password?: string;
   skin?: string;
+  killDelayMs?: number;
   country?: number;
   colorBody?: number;
   colorFeet?: number;
@@ -663,6 +664,7 @@ export class DdnetBot {
   private lastClipTick = -Infinity;
   private framesSinceScan = 0;
   private lastKillTick = -Infinity;
+  private pendingKill: { atTick: number; reason: string } | null = null;
   private lastEmoteMs = 0;
   private lastAcceptMs = 0;
   private readonly lastSeenDist = new Map<number, number>();
@@ -1042,6 +1044,10 @@ export class DdnetBot {
           "  !clip [note]           save the last 30s to a file for review",
           "  !log on|off            show every debug line, or just the status bar",
           "  !mode <name>           fight (default) | passive (never engage) | hold",
+          "  !name <nick>           change the nick live",
+          "  !clan <tag|->          change or clear the clan live",
+          "  !skin <name>           change the skin live",
+          "  !killdelay <seconds>   wait before automatic respawn-kill (0 = now)",
           "  !try <name>|off        switch a candidate planner setting on mid-game",
           "  !target <nick>         fight only this player, '!target -' to clear",
           "  !brain <name>          planner | net | scripted, swapped live",
@@ -1070,6 +1076,36 @@ export class DdnetBot {
         this.acting = want !== "hold";
         if (want !== "fight") this.targetId = -1;
         return `${gave}mode: ${want}`;
+      }
+      case "name": {
+        const value = arg.trim();
+        if (value === "") return "!name <nick>";
+        if ([...value].length > 15) return "name is limited to 15 characters";
+        this.cfg.name = value;
+        this.sendIdentity();
+        return `name: ${value}`;
+      }
+      case "clan": {
+        const value = arg.trim() === "-" ? "" : arg.trim();
+        if ([...value].length > 11) return "clan is limited to 11 characters";
+        this.cfg.clan = value;
+        this.sendIdentity();
+        return `clan: ${value === "" ? "off" : value}`;
+      }
+      case "skin": {
+        const value = arg.trim();
+        if (value === "") return "!skin <skin>";
+        if ([...value].length > 23) return "skin is limited to 23 characters";
+        this.cfg.skin = value;
+        this.sendIdentity();
+        return `skin: ${value}`;
+      }
+      case "killdelay": {
+        const value = Number(arg.trim());
+        if (!Number.isFinite(value) || value < 0 || value > 60) return "!killdelay 0..60 (seconds)";
+        this.cfg.killDelayMs = Math.round(value * 10) / 10 * 1000;
+        this.pendingKill = null;
+        return `automatic kill delay: ${this.cfg.killDelayMs / 1000}s`;
       }
       case "goto":
         return this.gotoCommand(arg);
@@ -1575,16 +1611,7 @@ export class DdnetBot {
     }
 
     if (nav.takeKill()) {
-      if (this.world.tick - this.lastKillTick >= KILL_COOLDOWN_TICKS) {
-        this.lastKillTick = this.world.tick;
-        this.stats.selfKills++;
-        this.emit("event", "goto: the way there starts with a respawn -> /kill");
-        try {
-          client.game.Kill();
-        } catch {
-
-        }
-      } else {
+      if (!this.requestAutoKill(client, "goto: the way there starts with a respawn")) {
         this.emit("event", "goto: the way there starts with a respawn, but /kill is on cooldown");
       }
     }
@@ -1862,6 +1889,7 @@ export class DdnetBot {
         this.idle();
         return;
       }
+      this.processAutoKill(client, self);
       if (!this.wasAlive) {
 
         this.wasAlive = true;
@@ -2083,6 +2111,46 @@ export class DdnetBot {
     } catch {
 
     }
+  }
+
+  private executeAutoKill(client: TwClient, reason: string): void {
+    if (this.world.tick - this.lastKillTick < KILL_COOLDOWN_TICKS) return;
+    this.lastKillTick = this.world.tick;
+    this.pendingKill = null;
+    this.stuckAnchor = null;
+    this.frozenSince = -1;
+    this.stats.selfKills++;
+    this.emit("event", `${reason} -> /kill`);
+    try {
+      client.game.Kill();
+    } catch {
+
+    }
+  }
+
+  private requestAutoKill(client: TwClient, reason: string): boolean {
+    if (this.pendingKill !== null || this.world.tick - this.lastKillTick < KILL_COOLDOWN_TICKS) return false;
+    const delayMs = Number.isFinite(this.cfg.killDelayMs) ? Math.max(0, this.cfg.killDelayMs ?? 0) : 0;
+    const delayTicks = Math.ceil((delayMs / 1000) * SNAPSHOTS_PER_SECOND);
+    if (delayTicks <= 0) {
+      this.executeAutoKill(client, reason);
+      return true;
+    }
+    this.pendingKill = { atTick: this.world.tick + delayTicks, reason };
+    this.emit("event", `${reason}; automatic /kill in ${(delayTicks / SNAPSHOTS_PER_SECOND).toFixed(1)}s`);
+    return true;
+  }
+
+  private processAutoKill(client: TwClient, self: TeeState): void {
+    if (this.pendingKill === null) return;
+    if (!self.alive) {
+      this.pendingKill = null;
+      return;
+    }
+    if (this.world.tick < this.pendingKill.atTick) return;
+    const reason = this.pendingKill.reason;
+    this.pendingKill = null;
+    this.executeAutoKill(client, reason);
   }
 
   liveMap(): LiveMap | null {
@@ -2629,7 +2697,7 @@ export class DdnetBot {
   commandNames(): string[] {
     return [
       "stop","go","war","friend","team","ignore","clanwar","clanfriend","sethome","home","clip","log","mode","try",
-      "target","brain","goto","stats","where","emote","reset","kill","yes","no","votes","vote","spec","join","lang","quit","help","seek","say",
+      "target","brain","name","clan","skin","killdelay","goto","stats","where","emote","reset","kill","yes","no","votes","vote","spec","join","lang","quit","help","seek","say",
     ];
   }
 
@@ -2882,16 +2950,7 @@ export class DdnetBot {
         trek.at++;
         trek.best = Infinity;
         trek.bestTick = this.world.tick;
-        if (this.world.tick - this.lastKillTick >= KILL_COOLDOWN_TICKS) {
-          this.lastKillTick = this.world.tick;
-          this.stats.selfKills++;
-          this.log("the way there starts with a respawn -> /kill");
-          try {
-            this.client?.game.Kill();
-          } catch {
-
-          }
-        }
+        if (!this.requestAutoKill(this.client!, "the way there starts with a respawn")) this.log("the way there starts with a respawn, but /kill is on cooldown");
         continue;
       }
       const p = { x: s.x * 32 + 16, y: s.y * 32 + 16 };
@@ -3201,22 +3260,11 @@ export class DdnetBot {
         (trapped && frozenFor >= TRAPPED_TICKS)) &&
 
       (!helped || frozenFor >= HELPED_LIMIT_TICKS);
-    if (overdue && this.world.tick - this.lastKillTick >= KILL_COOLDOWN_TICKS) {
-      this.lastKillTick = this.world.tick;
-      this.stuckAnchor = null;
-      this.frozenSince = -1;
-      this.stats.selfKills++;
-      this.log(
-        trapped && frozenFor < FROZEN_IN_TILE_TICKS
-          ? `frozen ${(frozenFor / 50).toFixed(1)}s where there is no way back to the game -> /kill`
-          : `frozen without a break for ${(frozenFor / 50).toFixed(1)}s${inTiles ? " standing in the tiles" : ""} (a strong player's longest in an hour is 4.0s) -> /kill`,
-      );
-      try {
-        client.game.Kill();
-      } catch {
-
-      }
-      return;
+    if (overdue) {
+      const reason = trapped && frozenFor < FROZEN_IN_TILE_TICKS
+        ? `frozen ${(frozenFor / 50).toFixed(1)}s where there is no way back to the game`
+        : `frozen without a break for ${(frozenFor / 50).toFixed(1)}s${inTiles ? " standing in the tiles" : ""} (a strong player's longest in an hour is 4.0s)`;
+      if (this.requestAutoKill(client, reason)) return;
     }
 
     if (this.stuckAnchor === null || vdistance(self.pos, this.stuckAnchor) > STUCK_RADIUS || self.frozen !== this.stuckAnchorFrozen) {
@@ -3239,18 +3287,8 @@ export class DdnetBot {
 
       if (!this.world.collision.isFreeze(self.pos.x, self.pos.y)) return;
     }
-    if (this.world.tick - this.lastKillTick < KILL_COOLDOWN_TICKS) return;
-
-    this.lastKillTick = this.world.tick;
     const wallMs = Date.now() - this.stuckAnchorMs;
-    this.stuckAnchor = null;
-    this.stats.selfKills++;
-    this.log(`stuck for ${(stuckTicks / 50).toFixed(1)}s of server ticks (${wallMs}ms wall clock)${self.frozen ? " (frozen)" : ""} -> /kill`);
-    try {
-      client.game.Kill();
-    } catch {
-
-    }
+    this.requestAutoKill(client, `stuck for ${(stuckTicks / 50).toFixed(1)}s of server ticks (${wallMs}ms wall clock)${self.frozen ? " (frozen)" : ""}`);
   }
 
   private planAction(ownId: number, targetId: number, self: TeeState): PlayerInput {

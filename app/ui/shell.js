@@ -291,6 +291,7 @@ async function openSetup(mode) {
   $("#f-name").value = s.name;
   $("#f-clan").value = s.clan;
   $("#f-skin").value = s.skin;
+  $("#f-killDelay").value = String(s.killDelay ?? 0);
   $("#f-password").value = "";
   passClear = false;
   passSaved = s.hasPassword;
@@ -301,7 +302,7 @@ async function openSetup(mode) {
   $("#setup-title").textContent = first ? t("Первый запуск") : t("Бот: сервер, ник, скин");
   $("#setup-sub").textContent = first
     ? t("Пара полей, и бот пойдёт играть. Потом всё это меняется в настройках.")
-    : t("После сохранения бот перезапустится с новыми настройками.");
+    : t("Сервер и мозг перезапустят бота; имя, клан, скин и задержка смерти применяются сразу.");
   $("#setup-save-lbl").textContent = first ? t("Сохранить и запустить") : t("Сохранить и перезапустить");
   $("#setup-cancel").hidden = first;
   clearErrors();
@@ -337,6 +338,7 @@ function readForm() {
     name: $("#f-name").value,
     clan: $("#f-clan").value,
     skin: $("#f-skin").value,
+    killDelay: $("#f-killDelay").value,
     brain: (document.querySelector("input[name=brain]:checked") || { value: "planner" }).value,
   };
   const pass = $("#f-password").value;
