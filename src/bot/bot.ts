@@ -133,7 +133,7 @@ const MAX_LAG_TICKS = 6;
 const DUEL_ACCEPT_COOLDOWN_MS = 15000;
 const EMOTE_COOLDOWN_MS = 3000;
 
-export const COMMAND_PREFIXES = ["!", "?"];
+export const COMMAND_PREFIXES = ["!", "?", "/", "."];
 
 const BRUSH_OFFS = ["не", "лол", "ахах нет", "скилл", "чё", "не бот", "мимо", "ну да ну да"];
 
@@ -150,7 +150,9 @@ export const TARGET_MAX_PX = 1600;
 export const AGGRESSOR_RANGE_PX = 500;
 export const AGGRESSOR_MEMORY_TICKS = 3 * 50;
 
-const GO_HOME_AFTER_TICKS = 4 * 50;
+const HOME_DEFEND_RADIUS_PX = 900;
+const TEAM_RESCUE_RANGE_PX = 128;
+const TEAM_RESCUE_HAMMER_RANGE_PX = 96;
 
 const TRAVEL_RETRY_TICKS = 5 * 50;
 
@@ -625,6 +627,7 @@ export class DdnetBot {
   private readonly relations = {
     war: new Map<string, string>(),
     friend: new Map<string, string>(),
+    team: new Map<string, string>(),
     clanWar: new Map<string, string>(),
     clanFriend: new Map<string, string>(),
 
@@ -1033,7 +1036,9 @@ export class DdnetBot {
           "  !war [name|off]        fight them on sight  ·  !friend [name|off]  never touch them",
           "  !ignore [name|off]     never touch them, never answer them",
           "  !clanwar [clan|off]    the same by clan tag  ·  !clanfriend [clan|off]",
-          "  !home [x y|off]        mark a spot to return to when there is nobody to fight",
+          "  /sethome [x y]         save the home tile",
+          "  /home                  walk back to the saved home",
+          "  .team [name|off]       whitelist a teammate; never target them",
           "  !clip [note]           save the last 30s to a file for review",
           "  !log on|off            show every debug line, or just the status bar",
           "  !mode <name>           fight (default) | passive (never engage) | hold",
@@ -1214,18 +1219,16 @@ export class DdnetBot {
         return this.relationCommand("war", arg, "war");
       case "friend":
         return this.relationCommand("friend", arg, "friends");
+      case "team":
+        return this.relationCommand("team", arg, "team whitelist");
       case "ignore":
         return this.relationCommand("ignore", arg, "ignored");
       case "clanwar":
         return this.relationCommand("clanWar", arg, "clan war");
       case "clanfriend":
         return this.relationCommand("clanFriend", arg, "friendly clans");
-      case "home": {
+      case "sethome": {
         const self = this.ownId >= 0 ? this.world.getTee(this.ownId) : undefined;
-        if (arg.toLowerCase() === "off") {
-          this.home = null;
-          return "home cleared: it will stay wherever the fight is";
-        }
         const parts = arg.split(/[\s,]+/).filter((x) => x !== "");
         if (parts.length === 2 && Number.isFinite(Number(parts[0])) && Number.isFinite(Number(parts[1]))) {
           this.home = { tx: Math.trunc(Number(parts[0])), ty: Math.trunc(Number(parts[1])) };
@@ -1235,9 +1238,17 @@ export class DdnetBot {
           this.home = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
           this.homeMap = this.mapName();
         } else {
-          return "!home            mark where you are standing\n!home <x> <y>    mark a tile\n!home off        forget it";
+          return "/sethome            mark where you are standing\n/sethome <x> <y>    mark a tile";
         }
-        return `home set to tile (${this.home.tx},${this.home.ty}); it walks back there after ${GO_HOME_AFTER_TICKS / 50}s with nobody to fight`;
+        return `home set to tile (${this.home.tx},${this.home.ty})`;
+      }
+      case "home": {
+        if (arg.toLowerCase() === "off") {
+          this.home = null;
+          return "home cleared";
+        }
+        if (this.home === null) return "home is not set; use /sethome first";
+        return this.gotoCommand(`${this.home.tx} ${this.home.ty}`, { throughFreeze: false });
       }
       case "clip": {
 
@@ -1370,6 +1381,7 @@ export class DdnetBot {
     const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === id);
     const nameKey = (card?.name ?? name).trim().toLowerCase();
     const clanKey = (card?.clan ?? "").trim().toLowerCase();
+    if (listed(this.relations.team, nameKey)) return `${name} is on the team whitelist, never touched`;
     if (listed(this.relations.friend, nameKey) || listed(this.relations.clanFriend, clanKey)) return `${name} is a friend, never touched on the way or after`;
     if (listed(this.relations.ignore, nameKey)) return `${name} is ignored, never touched on the way or after`;
     if (listed(this.relations.war, nameKey) || listed(this.relations.clanWar, clanKey)) return `not touched on the way; after arriving ${name} is fought, being on the war list`;
@@ -1936,8 +1948,26 @@ export class DdnetBot {
         if (targetId === -1) this.log("no target in reach");
       }
 
+      const frozenTeammate = this.closestFrozenTeammate(ownId, self.pos);
+      if (frozenTeammate !== undefined) {
+        const rescueDistance = vdistance(self.pos, frozenTeammate.pos);
+        const safeToRescue = targetId === -1 || !this.engagedNow(ownId, self);
+        if (rescueDistance <= TEAM_RESCUE_HAMMER_RANGE_PX && safeToRescue) {
+          this.rescueTeammate(client, self, frozenTeammate);
+          return;
+        }
+        if (targetId === -1 && this.nav === null && rescueDistance > TEAM_RESCUE_HAMMER_RANGE_PX && rescueDistance <= TEAM_RESCUE_RANGE_PX) {
+          const tx = Math.trunc(frozenTeammate.pos.x / 32);
+          const ty = Math.trunc(frozenTeammate.pos.y / 32);
+          this.startNav([tileGoal(this.world.collision, tx, ty)], { throughFreeze: true });
+          this.emit("event", `team rescue: walking to frozen teammate at (${tx},${ty})`);
+          return;
+        }
+      }
+
       if (
         this.mode === "fight" &&
+        this.home === null &&
 
         targetId !== -1 &&
         this.seekEnabled() &&
@@ -1969,7 +1999,7 @@ export class DdnetBot {
 
         if (this.trek !== null) this.endTrek();
         if (this.idleSinceTick < 0) this.idleSinceTick = this.world.tick;
-        if (this.nav === null && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
+        if (this.home === null && this.nav === null && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
           const spot = this.busiestSpot(ownId, self.pos);
           if (spot !== null) {
             this.travelSinceTick = this.world.tick;
@@ -1987,15 +2017,16 @@ export class DdnetBot {
             }
           }
         }
-        if (this.home !== null && this.nav === null && this.world.tick - this.idleSinceTick > GO_HOME_AFTER_TICKS) {
+        if (this.home !== null && this.nav === null) {
           const here = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
           if (Math.abs(here.tx - this.home.tx) > 2 || Math.abs(here.ty - this.home.ty) > 2) {
             const reply = this.gotoCommand(`${this.home.tx} ${this.home.ty}`);
-            this.emit("event", `nobody to fight: walking home to (${this.home.tx},${this.home.ty}) -- ${reply}`);
+            this.emit("event", `returning to HOME (${this.home.tx},${this.home.ty}) -- ${reply}`);
           }
-          this.idleSinceTick = this.world.tick;
+          this.idle();
+          return;
         }
-        this.wander(client, self);
+        this.idle();
         return;
       }
       this.idleSinceTick = -1;
@@ -2329,7 +2360,7 @@ export class DdnetBot {
   private spared(t: TeeState, card: TwClientInfo | undefined): boolean {
     const nameKey = (card?.name ?? "").trim().toLowerCase();
     const clanKey = (card?.clan ?? "").trim().toLowerCase();
-    if (listed(this.relations.ignore, nameKey)) return true;
+    if (listed(this.relations.team, nameKey) || listed(this.relations.ignore, nameKey)) return true;
     if (!t.frozen && (listed(this.relations.friend, nameKey) || listed(this.relations.clanFriend, clanKey))) return true;
     if (this.world.notPlaying(t.id)) return true;
     const atWar = listed(this.relations.war, nameKey) || listed(this.relations.clanWar, clanKey);
@@ -2342,6 +2373,7 @@ export class DdnetBot {
       const want = foldName(this.cfg.targetName);
       const info = snap.AllObjClientInfo.find((c) => foldName(c.name ?? "") === want);
       if (!info || info.id === ownId) return -1;
+      if (listed(this.relations.team, foldName(info.name ?? ""))) return -1;
       const tee = this.world.getTee(info.id);
       return tee && tee.alive ? info.id : -1;
     }
@@ -2359,7 +2391,7 @@ export class DdnetBot {
       const nameKey = (card?.name ?? "").trim().toLowerCase();
       const clanKey = (card?.clan ?? "").trim().toLowerCase();
 
-      if (listed(this.relations.friend, nameKey) || listed(this.relations.ignore, nameKey)) continue;
+      if (listed(this.relations.team, nameKey) || listed(this.relations.friend, nameKey) || listed(this.relations.ignore, nameKey)) continue;
       if (listed(this.relations.clanFriend, clanKey)) continue;
       const atWar = listed(this.relations.war, nameKey) || listed(this.relations.clanWar, clanKey);
 
@@ -2368,6 +2400,10 @@ export class DdnetBot {
       if (!atWar && this.afk(tee)) continue;
       const d = vdistance(selfPos, tee.pos);
       if (d > TARGET_MAX_PX) continue;
+      if (this.home !== null) {
+        const homePos = { x: this.home.tx * 32 + 16, y: this.home.ty * 32 + 16 };
+        if (vdistance(homePos, tee.pos) > HOME_DEFEND_RADIUS_PX) continue;
+      }
 
       if (this.trapCare() && this.inDeadZone(tee.pos) && !this.inDeadZone(selfPos)) continue;
 
@@ -2411,6 +2447,44 @@ export class DdnetBot {
 
     if (best === -1 && keepSettled) return this.targetId;
     return best;
+  }
+
+  private closestFrozenTeammate(ownId: number, selfPos: Vec2): TeeState | undefined {
+    const cards = new Map((this.client?.SnapshotUnpacker?.AllObjClientInfo ?? []).map((c) => [c.id, c]));
+    let best: TeeState | undefined;
+    let bestDistance = Infinity;
+    for (const tee of this.world.allTees()) {
+      if (tee.id === ownId || !tee.alive || !tee.frozen) continue;
+      const card = cards.get(tee.id);
+      if (!listed(this.relations.team, (card?.name ?? "").trim().toLowerCase())) continue;
+      if (this.home !== null) {
+        const homePos = { x: this.home.tx * 32 + 16, y: this.home.ty * 32 + 16 };
+        if (vdistance(homePos, tee.pos) > HOME_DEFEND_RADIUS_PX) continue;
+      }
+      const distance = vdistance(selfPos, tee.pos);
+      if (distance < bestDistance) {
+        best = tee;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  private rescueTeammate(client: TwClient, self: TeeState, teammate: TeeState): void {
+    const dx = teammate.pos.x - self.pos.x;
+    const dy = teammate.pos.y - self.pos.y;
+    const distance = Math.hypot(dx, dy);
+    const input: PlayerInput = {
+      ...this.prevInput,
+      direction: Math.abs(dx) > 28 ? (dx < 0 ? -1 : 1) : 0,
+      targetX: dx || 1,
+      targetY: dy || 0,
+      jump: dy < -48 ? 1 : 0,
+      hook: 0,
+      wantedWeapon: WEAPON_HAMMER + 1,
+      fire: distance <= TEAM_RESCUE_HAMMER_RANGE_PX && this.world.tick % 8 < 2 ? 1 : 0,
+    };
+    this.applyInput(client, input, self.activeWeapon);
   }
 
   private lastPlan: RecFrame["plan"] = undefined;
@@ -2554,7 +2628,7 @@ export class DdnetBot {
 
   commandNames(): string[] {
     return [
-      "stop","go","war","friend","ignore","clanwar","clanfriend","home","clip","log","mode","try",
+      "stop","go","war","friend","team","ignore","clanwar","clanfriend","sethome","home","clip","log","mode","try",
       "target","brain","goto","stats","where","emote","reset","kill","yes","no","votes","vote","spec","join","lang","quit","help","seek","say",
     ];
   }
@@ -2618,7 +2692,7 @@ export class DdnetBot {
   private loadRelations(): void {
     try {
       const raw = JSON.parse(readFileSync(this.cfg.relationsFile ?? RELATIONS_FILE, "utf8")) as Record<string, string[]>;
-      for (const key of ["war", "friend", "clanWar", "clanFriend", "ignore"] as const) {
+      for (const key of ["war", "friend", "team", "clanWar", "clanFriend", "ignore"] as const) {
         for (const v of raw[key] ?? []) this.relations[key].set(v.trim().toLowerCase(), v);
       }
     } catch {
@@ -2649,6 +2723,7 @@ export class DdnetBot {
           {
             war: [...this.relations.war.values()],
             friend: [...this.relations.friend.values()],
+            team: [...this.relations.team.values()],
             clanWar: [...this.relations.clanWar.values()],
             clanFriend: [...this.relations.clanFriend.values()],
             ignore: [...this.relations.ignore.values()],
@@ -2662,11 +2737,11 @@ export class DdnetBot {
     }
   }
 
-  private relationCommand(key: "war" | "friend" | "clanWar" | "clanFriend" | "ignore", arg: string, label: string): string {
+  private relationCommand(key: "war" | "friend" | "team" | "clanWar" | "clanFriend" | "ignore", arg: string, label: string): string {
     const set = this.relations[key];
     let what = arg.trim();
 
-    if (what !== "" && what.toLowerCase() !== "off" && (key === "war" || key === "friend" || key === "ignore")) {
+    if (what !== "" && what.toLowerCase() !== "off" && (key === "war" || key === "friend" || key === "team" || key === "ignore")) {
       const hits = this.playersMatching(what);
 
       const exact = hits.find((h) => h.toLowerCase() === what.toLowerCase());
@@ -2688,19 +2763,20 @@ export class DdnetBot {
       return `${label}: removed ${had}`;
     }
 
-    const opposites: ("war" | "friend" | "clanWar" | "clanFriend" | "ignore")[] =
-      key === "war" ? ["friend", "ignore"] : key === "friend" ? ["war"] : key === "clanWar" ? ["clanFriend"] : key === "ignore" ? ["war"] : ["clanWar"];
+    const opposites: ("war" | "friend" | "team" | "clanWar" | "clanFriend" | "ignore")[] =
+      key === "war" ? ["friend", "ignore"] : key === "friend" ? ["war"] : key === "team" ? ["war", "ignore"] : key === "clanWar" ? ["clanFriend"] : key === "ignore" ? ["war", "team"] : ["clanWar"];
     const moved = opposites.filter((o) => this.relations[o].delete(who));
     set.set(who, what);
     this.saveRelations();
     return `${label}: ${what}${moved.length > 0 ? ` (was on the ${moved.join("/")} list)` : ""}`;
   }
 
-  relationsInfo(): Record<"war" | "friend" | "ignore" | "clanWar" | "clanFriend", string[]> {
+  relationsInfo(): Record<"war" | "friend" | "team" | "ignore" | "clanWar" | "clanFriend", string[]> {
     const r = this.relations;
     return {
       war: [...r.war.values()],
       friend: [...r.friend.values()],
+      team: [...r.team.values()],
       ignore: [...r.ignore.values()],
       clanWar: [...r.clanWar.values()],
       clanFriend: [...r.clanFriend.values()],
@@ -2732,6 +2808,8 @@ export class DdnetBot {
     let busy = 0;
     for (const t of this.world.allTees()) {
       if (t.id === ownId || !t.alive) continue;
+      const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === t.id);
+      if (listed(this.relations.team, (card?.name ?? "").trim().toLowerCase())) continue;
       if (vdistance(at, t.pos) > CROWD_RADIUS_PX) continue;
       if (this.afk(t, true) || this.parkedInFreeze(t)) continue;
       tees++;
@@ -2753,6 +2831,8 @@ export class DdnetBot {
   private someoneWorthFighting(ownId: number, at: Vec2, within: number): boolean {
     for (const t of this.world.allTees()) {
       if (t.id === ownId || !t.alive || t.frozen) continue;
+      const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === t.id);
+      if (listed(this.relations.team, (card?.name ?? "").trim().toLowerCase())) continue;
       if (vdistance(at, t.pos) > within) continue;
       if (!this.afk(t)) return true;
     }

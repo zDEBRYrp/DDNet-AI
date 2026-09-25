@@ -63,6 +63,13 @@
  <form id="f"><input type="text" id="i" placeholder="команда, например !stats или !try off" autocomplete="off"></form>
  <button id="send" type="button">Отправить</button>
  <span class="sep"></span>
+ <button class="ghost" data-cmd="/sethome" type="button" title="Запомнить текущую клетку как HOME">set HOME</button>
+ <button class="ghost" data-cmd="/home" type="button" title="Идти к HOME">идти домой</button>
+ <button class="ghost" data-cmd="/mode fight" type="button">драться</button>
+ <button class="ghost" data-cmd="/mode passive" type="button">не лезть</button>
+ <button class="ghost" data-cmd="/stop" type="button">стоять</button>
+ <button class="ghost" data-cmd="/go" type="button">играть</button>
+ <span class="sep"></span>
  <button class="ghost" data-cmd="!yes" type="button" title="Голос за в идущем голосовании (F3)">F3 за</button>
  <button class="ghost" data-cmd="!no" type="button" title="Голос против (F4)">F4 против</button>
  <button class="ghost" data-cmd="!kill" type="button" title="/kill за бота">убиться</button>
@@ -117,10 +124,7 @@
   <span class="k" id="s_note" style="margin:0"></span></div>
  <div class="hint">Сервер, имя, клан и скин применяются при следующем запуске бота.</div>
  <div class="bar" style="margin-top:12px">
-  <button class="ghost" data-cmd="!mode fight" type="button">драться</button>
-  <button class="ghost" data-cmd="!mode passive" type="button">не лезть</button>
-  <button class="ghost" data-cmd="!stop" type="button">стоять</button>
-  <button class="ghost" data-cmd="!go" type="button">играть</button>
+ <div class="hint">HOME — базовая точка защиты. Игрока в whitelist можно добавить командой .team Ник.</div>
  </div>
 </div>
 <div class="card" id="langbar">
