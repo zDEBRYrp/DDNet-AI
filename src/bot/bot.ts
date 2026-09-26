@@ -2985,10 +2985,27 @@ export class DdnetBot {
   }
 
   private frozenTargetAction(self: TeeState, target: TeeState): PlayerInput | null {
-    // A frozen enemy is not a hook target.  The planner handles positioning;
-    // repeatedly re-hooking it only pulls it back out of the freeze.
-    if (target.frozen) return null;
     const d = vdistance(self.pos, target.pos);
+    // Only touch a freshly frozen enemy while it is still next to the hazard.
+    // Once it has settled, dropping the target is intentional: re-hooking it
+    // would pull it back out and was the source of the old endless rehook loop.
+    if (target.frozen) {
+      if (!this.frozenTargetIsActionable(self, target, d)) return null;
+      const dx = target.pos.x - self.pos.x;
+      const dy = target.pos.y - self.pos.y;
+      if (d <= TUNING.hookLength && this.lineIsClear(self.pos, target.pos) && target.hookedPlayer !== self.id && (self.hookState === HOOK_IDLE || self.hookState === HOOK_FLYING)) {
+        // Pull the fresh frozen body toward the calculated finishing position;
+        // never swing while it is frozen, because hammering can thaw it.
+        return { ...emptyInput(), targetX: dx, targetY: dy, hook: 1, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 };
+      }
+      if (self.hookedPlayer === target.id) {
+        return this.guard(self, { ...this.prevInput, targetX: dx, targetY: dy, hook: 1, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 });
+      }
+      if (d > TUNING.hookLength && d <= BLOCKING_RANGE_PX && this.lineIsClear(self.pos, target.pos)) {
+        return { ...emptyInput(), direction: dx < 0 ? -1 : 1, jump: dy < -32 ? 1 : 0, targetX: dx, targetY: dy, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 };
+      }
+      return null;
+    }
     if (!this.frozenTargetIsActionable(self, target, d)) return null;
     const dx = target.pos.x - self.pos.x;
     const dy = target.pos.y - self.pos.y;
