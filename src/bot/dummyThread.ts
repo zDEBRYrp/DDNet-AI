@@ -1,5 +1,5 @@
 import { Worker } from "node:worker_threads";
-import type { BotConfig, BotLine } from "./bot.ts";
+import type { BotConfig, BotLine, BotStatus } from "./bot.ts";
 
 export type DummyStatus = {
   phase: "offline" | "connecting" | "online";
@@ -16,6 +16,7 @@ export type DummyStatus = {
   selfId: number;
 
   duelScore: { name: string; ours: number; theirs: number } | null;
+  plan?: BotStatus["plan"];
   error?: string;
 };
 

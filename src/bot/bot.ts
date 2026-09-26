@@ -459,6 +459,7 @@ export type BotStatus = {
   frozen: boolean;
   tick: number;
   stats: BotStats;
+  plan?: RecFrame["plan"];
 
   lowCpu?: boolean;
   lag?: LagSummary;
@@ -1199,6 +1200,7 @@ export class DdnetBot {
       frozen: self?.frozen ?? false,
       tick: this.world.tick,
       stats: this.stats,
+      plan: this.lastPlan,
       lowCpu: this.lowCpu,
       lag: this.lag.summary(),
     };

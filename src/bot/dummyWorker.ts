@@ -38,7 +38,7 @@ bot.onOutput((line) => post({ t: "out", line }));
 
 function status(): DummyStatus {
   const s = bot.status();
-  return { phase: s.phase, frozen: s.frozen, acting: s.acting, mode: s.mode, wb: s.wb ?? null, wbMode: s.panel?.wbMode ?? null, target: s.targetName, home: s.panel?.home ?? false, inDuel: s.panel?.inDuel ?? false, pinnedTarget: s.panel?.pinnedTarget ?? null, selfId: bot.ownClientId(), duelScore: s.panel?.duelScore ?? null, error: s.phase === "online" ? undefined : s.offlineReason || undefined };
+  return { phase: s.phase, frozen: s.frozen, acting: s.acting, mode: s.mode, wb: s.wb ?? null, wbMode: s.panel?.wbMode ?? null, target: s.targetName, home: s.panel?.home ?? false, inDuel: s.panel?.inDuel ?? false, pinnedTarget: s.panel?.pinnedTarget ?? null, selfId: bot.ownClientId(), duelScore: s.panel?.duelScore ?? null, plan: s.plan, error: s.phase === "online" ? undefined : s.offlineReason || undefined };
 }
 
 const statusTimer = setInterval(() => post({ t: "status", status: status() }), 250);
