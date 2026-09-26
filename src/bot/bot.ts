@@ -2663,6 +2663,12 @@ export class DdnetBot {
       }
 
       input = this.guard(self, input);
+      if (
+        input.hook !== 0 &&
+        !this.lineIsClear(self.pos, { x: self.pos.x + input.targetX, y: self.pos.y + input.targetY })
+      ) {
+        input = { ...input, hook: 0 };
+      }
       this.applyInput(client, input, self.activeWeapon);
     } catch (err) {
       this.stats.errors++;
@@ -5034,6 +5040,11 @@ export class DdnetBot {
     const a = cur + step;
     const tx = guarded && hook ? safe.targetX : Math.round(Math.cos(a) * 300);
     const ty = guarded && hook ? safe.targetY : Math.round(Math.sin(a) * 300);
+
+    if (hook && !this.lineIsClear(self.pos, { x: self.pos.x + tx, y: self.pos.y + ty })) {
+      hook = false;
+      this.wanderHookUntilTick = tick;
+    }
 
     if (hook && !guarded && (self.hookedPlayer >= 0 || (self.hookState === HOOK_IDLE && this.ropeCatches(self, { ...this.prevInput, targetX: tx, targetY: ty }, this.world.allTees())))) {
       hook = false;
