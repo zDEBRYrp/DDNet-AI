@@ -1,10 +1,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { AI_CHAT_DEFAULTS, sanitizeAiChat } from "./aiChat.ts";
+import type { AiChatSettings } from "./aiChat.ts";
 
 export type AutoChatRule = { on: boolean; match: string; reply: string };
 export type AutoChatConfig = {
   periodic: { on: boolean; text: string; everySec: number };
   mention: { on: boolean; reply: string };
+  ai: AiChatSettings;
   keywords: AutoChatRule[];
 };
 
@@ -24,6 +27,7 @@ const PENDING_MS = 6000;
 export const AUTOCHAT_DEFAULTS: AutoChatConfig = {
   periodic: { on: false, text: "", everySec: 60 },
   mention: { on: false, reply: "" },
+  ai: AI_CHAT_DEFAULTS,
   keywords: [],
 };
 
@@ -33,6 +37,7 @@ export function sanitizeAutoChat(raw: unknown): AutoChatConfig {
   const o = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const p = o.periodic !== null && typeof o.periodic === "object" ? (o.periodic as Record<string, unknown>) : {};
   const m = o.mention !== null && typeof o.mention === "object" ? (o.mention as Record<string, unknown>) : {};
+  const ai = o.ai !== null && typeof o.ai === "object" ? o.ai : {};
   const every = Number(p.everySec);
   const rules = Array.isArray(o.keywords) ? o.keywords : [];
   return {
@@ -42,6 +47,7 @@ export function sanitizeAutoChat(raw: unknown): AutoChatConfig {
       everySec: Number.isFinite(every) ? Math.min(3600, Math.max(AUTOCHAT_MIN_PERIOD_S, Math.round(every))) : AUTOCHAT_DEFAULTS.periodic.everySec,
     },
     mention: { on: m.on === true, reply: str(m.reply) },
+    ai: sanitizeAiChat(ai),
     keywords: rules
       .slice(0, AUTOCHAT_MAX_RULES)
       .map((r) => (r !== null && typeof r === "object" ? (r as Record<string, unknown>) : {}))
@@ -83,6 +89,10 @@ export class AutoChat {
 
   config(): AutoChatConfig {
     return this.cfg;
+  }
+
+  aiEnabled(): boolean {
+    return this.cfg.ai.on;
   }
 
   set(raw: unknown, nowMs = Date.now()): AutoChatConfig {

@@ -173,6 +173,12 @@ if($('#s_update'))$('#s_update').addEventListener('click',async()=>{
  try{const r=await(await fetch('/api/update',{method:'POST'})).json();$('#s_note').textContent=r.reply?tr(r.reply):t('готово')}
  catch{$('#s_note').textContent=t('не вышло проверить')}
 });
+let chatMode='global';
+function renderChatMode(){$('#chat-global').className='ghost'+(chatMode==='global'?' on':'');$('#chat-local').className='ghost'+(chatMode==='local'?' on':'')}
+async function pullChatMode(){try{const c=await(await fetch('/api/chat-mode')).json();chatMode=c.mode==='local'?'local':'global';renderChatMode()}catch{}}
+async function setChatMode(mode){try{const c=await(await fetch('/api/chat-mode',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode})})).json();chatMode=c.mode==='local'?'local':'global';renderChatMode()}catch{}}
+$('#chat-global').addEventListener('click',()=>setChatMode('global'));$('#chat-local').addEventListener('click',()=>setChatMode('local'));pullChatMode();
+$('#chat-ai').addEventListener('click',async()=>{try{const c=await(await fetch('/api/autochat')).json();c.ai=c.ai||{};c.ai.on=!c.ai.on;await fetch('/api/autochat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(c)});$('#chat-ai').className='ghost'+(c.ai.on?' on':'')}catch{}});
 if($('#send'))$('#send').addEventListener('click',()=>$('#f').requestSubmit());
 
 function mss(sec){const s=Math.round(sec),h=Math.floor(s/3600),m=Math.floor(s/60)%60,r=String(s%60).padStart(2,'0');return h?h+':'+String(m).padStart(2,'0')+':'+r:m+':'+r}
@@ -886,6 +892,8 @@ function acFill(c){
  if(!c)return;
  $('#ac_per_on').checked=!!c.periodic.on;$('#ac_per_sec').value=String(c.periodic.everySec);$('#ac_per_text').value=c.periodic.text||'';
  $('#ac_men_on').checked=!!c.mention.on;$('#ac_men_text').value=c.mention.reply||'';
+ $('#ac_ai_on').checked=!!c.ai?.on;$('#ac_ai_prompt').value=c.ai?.systemPrompt||'';$('#ac_ai_endpoint').value=c.ai?.endpoint||'';$('#ac_ai_model').value=c.ai?.model||'';
+ $('#chat-ai').className='ghost'+(c.ai?.on?' on':'');
  $('#ac_rules').textContent='';for(const r of c.keywords||[])acRule(r);
  if(!(c.keywords||[]).length)acRule({on:true,match:'',reply:''});
 }
@@ -894,6 +902,7 @@ $('#ac_add').addEventListener('click',()=>acRule({on:true,match:'',reply:''}));
 $('#ac_save').addEventListener('click',async()=>{
  const body={periodic:{on:$('#ac_per_on').checked,everySec:Number($('#ac_per_sec').value),text:$('#ac_per_text').value},
   mention:{on:$('#ac_men_on').checked,reply:$('#ac_men_text').value},
+  ai:{on:$('#ac_ai_on').checked,systemPrompt:$('#ac_ai_prompt').value,endpoint:$('#ac_ai_endpoint').value,model:$('#ac_ai_model').value},
   keywords:[...document.querySelectorAll('#ac_rules .ac-rule')].map((r)=>({on:r.querySelector('.ac-on').checked,match:r.querySelector('.ac-match').value,reply:r.querySelector('.ac-reply').value}))};
  try{const r=await fetch('/api/autochat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const c=await r.json();
   if(r.ok&&c){acFill(c);$('#ac_note').textContent=t('сохранено')}else $('#ac_note').textContent=t('не сохранилось')}

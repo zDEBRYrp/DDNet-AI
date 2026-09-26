@@ -117,6 +117,9 @@
 <div class="bottombar">
  <form id="f"><input type="text" id="i" placeholder="команда боту (!help) или текст в чат" autocomplete="off" spellcheck="false"><span class="i-tip" id="itip"></span></form>
  <button id="send" type="button">Отправить</button>
+ <button class="ghost" id="chat-ai" type="button" title="AI отвечает на сообщения, где упомянут ник бота">AI</button>
+ <button class="ghost on" id="chat-global" type="button" title="Писать в общий чат">G</button>
+ <button class="ghost" id="chat-local" type="button" title="Писать в локальный чат команды">L</button>
  <span class="sep"></span>
  <button class="ghost" data-cmd="!yes" type="button" title="Голос за в идущем голосовании (F3)">F3 за</button>
  <button class="ghost" data-cmd="!no" type="button" title="Голос против (F4)">F4 против</button>
@@ -179,6 +182,9 @@
  <input type="text" id="ac_per_text" maxlength="200" placeholder="например: побей {me} на дуэли, пиши /duel {me}">
  <div class="ac-row"><label class="check"><input type="checkbox" id="ac_men_on"> Отвечать, когда пишут ник бота</label></div>
  <input type="text" id="ac_men_text" maxlength="200" placeholder="например: {name}, я бот, вызывай на дуэль">
+ <div class="ac-row"><label class="check"><input type="checkbox" id="ac_ai_on"> AI-ответы через g4f</label></div>
+ <textarea id="ac_ai_prompt" rows="3" maxlength="1200" placeholder="Системный промпт AI"></textarea>
+ <div class="fields"><label>g4f endpoint<input type="text" id="ac_ai_endpoint" placeholder="http://127.0.0.1:1337/v1"></label><label>Модель<input type="text" id="ac_ai_model" placeholder="gpt-4o-mini"></label></div>
  <div class="ac-row"><span class="ac-title">Ответ на слово в чате</span><button class="ghost mini" id="ac_add" type="button">+ правило</button></div>
  <div class="ac-rules" id="ac_rules"></div>
  <div class="bar"><button id="ac_save" type="button">Сохранить</button><span class="k" id="ac_note" style="margin:0"></span></div>

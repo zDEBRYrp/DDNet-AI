@@ -138,6 +138,8 @@ export type WebBot = {
 
   autoChatInfo?: () => unknown;
   setAutoChat?: (raw: unknown) => unknown;
+  chatMode?: () => "global" | "local";
+  setChatMode?: (mode: unknown) => "global" | "local";
   checkUpdate?: () => Promise<string>;
   knobs?: () => { key: string; value: unknown; def: unknown; changed: boolean }[];
   setKnob?: (key: string, value: unknown) => string;
@@ -641,6 +643,23 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
     if (url.pathname === "/api/autochat" && req.method !== "POST") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       res.end(JSON.stringify(bot.autoChatInfo?.() ?? null));
+      return;
+    }
+    if (url.pathname === "/api/chat-mode" && req.method === "GET") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify({ mode: bot.chatMode?.() ?? "global" }));
+      return;
+    }
+    if (url.pathname === "/api/chat-mode" && req.method === "POST") {
+      let raw = "";
+      req.on("data", (c) => { raw += String(c); });
+      req.on("end", () => {
+        let mode: unknown = "global";
+        try { mode = (JSON.parse(raw) as { mode?: unknown }).mode; } catch { }
+        const selected = bot.setChatMode?.(mode) ?? "global";
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ mode: selected }));
+      });
       return;
     }
     if (url.pathname === "/api/autochat" && req.method === "POST") {

@@ -72,6 +72,7 @@ import { installNetworkGuard, patchHuffman, patchRedirect, patchSnapshotDecoder 
 import type { NetGuard } from "./netPatch.ts";
 import { AutoChat } from "./autoChat.ts";
 import type { AutoChatConfig } from "./autoChat.ts";
+import { askG4f } from "./aiChat.ts";
 import type { MapClientLike, RawSnapItem, SnapshotSource } from "./liveWorld.ts";
 
 const require = createRequire(import.meta.url);
@@ -890,6 +891,9 @@ export class DdnetBot {
   }
 
   private readonly autoChat: AutoChat;
+  private chatTeam = false;
+  private aiLastReplyMs = -Infinity;
+  private aiBusy = false;
   autoChatInfo(): AutoChatConfig {
     return this.autoChat.config();
   }
@@ -899,8 +903,14 @@ export class DdnetBot {
     return cfg;
   }
 
+  chatMode(): "global" | "local" { return this.chatTeam ? "local" : "global"; }
+  setChatMode(mode: unknown): "global" | "local" {
+    this.chatTeam = mode === "local" || mode === "team";
+    return this.chatMode();
+  }
+
   private autoSay(text: string, line: string | null = null): void {
-    const ok = this.say(text);
+    const ok = this.say(text, this.chatTeam);
     this.autoChat.sent(text, ok);
     if (ok) this.emit("event", `auto chat: ${text}`);
     if (line === null || !/^\/accept\b/.test(text.trim().toLowerCase())) return;
@@ -1269,7 +1279,7 @@ export class DdnetBot {
     if (trimmed.length === 0) return "";
 
     if (!COMMAND_PREFIXES.includes(trimmed[0])) {
-      if (!this.say(trimmed)) return "not sent: chat cooldown, try again in a moment";
+      if (!this.say(trimmed, this.chatTeam)) return "not sent: chat cooldown, try again in a moment";
 
       if (/^\/accept\b/i.test(trimmed)) {
         this.duelAnsweredMs = Date.now();
@@ -2086,8 +2096,11 @@ export class DdnetBot {
     else this.emit("chat", `${msg.team === CHAT_TEAM ? "(team) " : ""}${mentioned ? "*" : ""}${msg.message}`, who);
 
     if (this.onList("ignore", who.trim().toLowerCase(), msg.client_id)) return;
-    const answer = this.autoChat.onChat({ from: who, text: msg.message, server: false, me: this.cfg.name });
-    if (answer !== null) this.autoSay(answer, whisper ? msg.message : null);
+    if (!whisper && this.autoChat.aiEnabled() && mentioned) void this.answerWithAi(who, msg.message);
+    else {
+      const answer = this.autoChat.onChat({ from: who, text: msg.message, server: false, me: this.cfg.name });
+      if (answer !== null) this.autoSay(answer, whisper ? msg.message : null);
+    }
     if (whisper) this.maybeAcceptDuel(msg, who);
     this.maybeAnswerAccusation(msg);
     if (!this.cfg.chat) return;
@@ -2130,12 +2143,25 @@ export class DdnetBot {
     }
   }
 
-  private say(text: string): boolean {
+  private async answerWithAi(who: string, message: string): Promise<void> {
+    const now = Date.now();
+    if (this.aiBusy || now - this.aiLastReplyMs < 7000) return;
+    this.aiBusy = true;
+    try {
+      const answer = await askG4f(this.autoChat.config().ai, who, message);
+      this.aiLastReplyMs = Date.now();
+      this.autoSay(answer);
+    } catch (err) {
+      this.emit("event", `AI чат: ${err instanceof Error ? err.message : String(err)}`);
+    } finally { this.aiBusy = false; }
+  }
+
+  private say(text: string, team = false): boolean {
     const now = Date.now();
     if (now - this.lastChatMs < CHAT_MIN_INTERVAL_MS) return false;
     if (this.client === undefined || this.client === null) return false;
     this.lastChatMs = now;
-    this.client.game.Say(text);
+    this.client.game.Say(text, team);
     return true;
   }
 
