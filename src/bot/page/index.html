@@ -59,7 +59,7 @@
   </div>
   <div class="ctl-row" id="wbrow" hidden><span class="lbl" title="Вейблок: проход со спавна к главному залу">сторона</span>
    <div class="seg" id="wbseg">
-    <button type="button" data-wb="auto" title="Сторону выбирает сам и держит её">авто</button>
+    <button type="button" data-wb="auto" title="Случайно выбирает левый или правый проход">рандом</button>
     <button type="button" data-wb="left" title="Держать левый проход">слева</button>
     <button type="button" data-wb="right" title="Держать правый проход">справа</button>
     <button type="button" data-wb="both" title="Два бота: один держит левый проход, второй правый">2 ВБ</button>
@@ -85,8 +85,9 @@
    <select id="emo" title="Эмоция бота"><option value="">эмоция</option><option value="hearts">сердечки</option><option value="exclamation">!</option><option value="question">?</option><option value="sorry">извини</option><option value="drop">капля</option><option value="splat">splat</option><option value="zzz">zzz</option></select>
   </div>
   <div class="ctl-row ctl-low"><label class="check" title="Короче расчёт и новый план раз в два снимка: играет слабее, но успевает за сервером на слабом ПК (!low on / !low off). Сам не включается"><input type="checkbox" id="lowcpu"> Режим для слабого ПК</label></div>
-  <div class="ctl-dummy" id="dummyrow" hidden>
-   <div class="ctl-row"><span class="lbl">Управлять</span><select id="control-target"><option value="main">основной бот</option><option value="dummy">второй бот</option></select><button class="ghost mini" id="dummy-reset" type="button" title="Убить и возродить второй бот">Reset 2</button></div>
+  <div class="ctl-dummy" id="dummyrow">
+   <div class="ctl-row"><span class="lbl">Dummy</span><button class="ghost mini" id="dummy-toggle" type="button" title="Подключить или отключить второго бота">подключить дамми</button><span class="chip off" id="dummychip">не подключён</span></div>
+   <div class="ctl-row" id="dummy-controls" hidden><span class="lbl">Управлять</span><select id="control-target"><option value="main">основной бот</option><option value="dummy">второй бот</option></select><button class="ghost mini" id="dummy-reset" type="button" title="Убить и возродить второй бот">Reset 2</button></div>
    <div class="hint" id="dummytext"></div>
   </div>
   <div class="ctl-reply" id="reply" hidden></div>
@@ -178,12 +179,12 @@
  <input type="text" id="ac_per_text" maxlength="200" placeholder="например: побей {me} на дуэли, пиши /duel {me}">
  <div class="ac-row"><label class="check"><input type="checkbox" id="ac_men_on"> Отвечать, когда пишут ник бота</label></div>
  <input type="text" id="ac_men_text" maxlength="200" placeholder="например: {name}, я бот, вызывай на дуэль">
- <div class="ac-row"><label class="check"><input type="checkbox" id="ac_ai_on"> AI-ответы через g4f</label></div>
+ <div class="ac-row"><label class="check"><input type="checkbox" id="ac_ai_on" disabled> AI-ответы через g4f — включаются кнопкой AI в чате</label></div>
  <textarea id="ac_ai_prompt" rows="3" maxlength="1200" placeholder="Системный промпт AI"></textarea>
  <div class="fields"><label>g4f endpoint<input type="text" id="ac_ai_endpoint" placeholder="http://127.0.0.1:1337/v1"></label><label>Провайдер<input type="text" id="ac_ai_provider" placeholder="OpenaiChat"></label><label>Модель<input type="text" id="ac_ai_model" placeholder="gpt-4o-mini"></label></div>
  <div class="ac-row"><span class="ac-title">Ответ на слово в чате</span><button class="ghost mini" id="ac_add" type="button">+ правило</button></div>
  <div class="ac-rules" id="ac_rules"></div>
- <div class="bar"><button id="ac_save" type="button">Сохранить</button><span class="k" id="ac_note" style="margin:0"></span></div>
+ <div class="bar"><button id="ac_save" type="button">Сохранить</button><button class="ghost" id="diagcopy" type="button" title="Скопировать последние логи, состояние и ошибки">скопировать диагностику</button><span class="k" id="ac_note" style="margin:0"></span></div>
  <div class="hint">{name} подставит ник того, кто написал, {me} ник бота. Слова через | или запятую: дуэль|duel. Ответ, начинающийся с /, уходит серверу командой, например /accept. Не чаще одного сообщения в 2 с; каждое правило не чаще раза в 5 с; раз в N секунд не чаще раза в 15 с.</div>
 </div>
 <div class="card" id="langbar">

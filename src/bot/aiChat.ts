@@ -26,6 +26,15 @@ function compact(text: string): string {
   return oneLine.split(/\s+/u).filter(Boolean).slice(0, 9).join(" ").slice(0, 160);
 }
 
+function contentOf(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((part) => part !== null && typeof part === "object" && typeof (part as { text?: unknown }).text === "string" ? (part as { text: string }).text : "")
+    .filter(Boolean)
+    .join(" ");
+}
+
 export async function askG4f(settings: AiChatSettings, name: string, message: string): Promise<string> {
   const cfg = sanitizeAiChat(settings);
   const controller = new AbortController();
@@ -36,7 +45,7 @@ export async function askG4f(settings: AiChatSettings, name: string, message: st
     const data = await res.json() as { choices?: Array<{ message?: { content?: unknown }; text?: unknown }> };
     const choice = data.choices?.[0];
     const raw = choice?.message?.content ?? choice?.text ?? "";
-    const answer = compact(typeof raw === "string" ? raw : "");
+    const answer = compact(contentOf(raw));
     if (answer === "") throw new Error("g4f вернул пустой ответ");
     return answer;
   } finally { clearTimeout(timer); }

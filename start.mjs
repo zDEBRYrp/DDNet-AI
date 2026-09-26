@@ -385,7 +385,7 @@ ${line(56)}
     const ownStatus = bot.status.bind(bot);
     bot.status = () => {
       const d = dummy?.status();
-      return d === undefined ? ownStatus() : { ...ownStatus(), dummy: { name: dummyName, phase: d.phase, frozen: d.frozen, acting: d.acting, mode: d.mode, wb: d.wb, target: d.target, id: d.selfId, duelScore: d.duelScore } };
+      return d === undefined ? ownStatus() : { ...ownStatus(), dummy: { name: dummyName, phase: d.phase, frozen: d.frozen, acting: d.acting, mode: d.mode, wb: d.wb, target: d.target, id: d.selfId, duelScore: d.duelScore, error: d.error } };
     };
 
     const { bothBotsDuels, readDuelFile } = await import("./src/bot/bot.ts");

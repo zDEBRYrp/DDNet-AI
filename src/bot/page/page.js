@@ -82,9 +82,10 @@ let controlTarget='main';
 async function botCmd(v,show){
  let reply='';
  const shared=/^!(?:target|charge|goto|style|mode|go|stop|wb|duel)\b/i.test(v);
- const line=shared||controlTarget==='main'||/^!wb\s+both\b/i.test(v)?v:'!d '+v;
+ const pair=/^!wb\s+both\s*$/i.test(v);
+ const line=shared||controlTarget==='main'?v:'!d '+v;
  try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
- if(shared&&!$('#dummyrow').hidden){try{await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:'!d '+v})})}catch{}}
+ if(shared&&!pair&&lastStatus?.dummy?.phase==='online'){try{await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:'!d '+v})})}catch{}}
  if(show&&reply){const box=$('#reply');box.textContent=tr(reply.split('\n')[0]);box.hidden=false;clearTimeout(replyTimer);replyTimer=setTimeout(()=>{box.hidden=true},5000)}
  tick();
  return reply;
@@ -106,8 +107,20 @@ $('#ahome').addEventListener('click',()=>void botCmd(panel&&panel.home?'!home of
 $('#lowcpu').addEventListener('change',()=>void botCmd($('#lowcpu').checked?'!low on':'!low off',true));
 $('#control-target').addEventListener('change',(e)=>{controlTarget=e.target.value==='dummy'?'dummy':'main'});
 $('#dummy-reset').addEventListener('click',()=>{controlTarget='dummy';void botCmd('!reset',true)});
+$('#dummy-toggle').addEventListener('click',async()=>{
+ const on=lastStatus?.dummy?.phase==='online'||lastStatus?.dummy?.phase==='connecting';
+ try{
+  const cfg=await(await fetch('/api/launch')).json();
+  const body={dummy:on?'off':'on'};
+  if(typeof cfg.dummyName==='string')body.dummyName=cfg.dummyName;
+  const r=await(await fetch('/api/launch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
+  $('#dummytext').textContent=r.reply||'';
+ }catch{}
+ tick();
+});
 function renderPanel(s){
  panel=s.panel||null;
+ lastStatus=s;
  $('#lowcpu').checked=s.lowCpu===true;
 
  const d=s.dummy||null;
@@ -116,14 +129,18 @@ function renderPanel(s){
  if(pid!==partnerRowId){partnerRowId=pid;playersKey=''}
 
  partnerRowName=d&&d.name?String(d.name):'';
- $('#dummyrow').hidden=!d;
+ $('#dummyrow').hidden=false;
  if(d){
   const on=d.phase==='online';
   $('#dummychip').textContent=!on?t('не в игре'):d.frozen?t('во фризе'):d.acting?t('свободен'):t('стоит');
   $('#dummychip').className='chip '+(!on?'off':d.frozen?'frozen':'free');
   $('#dummytext').textContent=d.name+(d.wb?' · '+(d.wb==='WB left'?t('держит ВБ слева'):t('держит ВБ справа')):'')+(d.target?' · '+t('цель: {name}',{name:d.target}):'');
+  if(d.error)$('#dummytext').textContent+=' · '+t('ошибка: {error}',{error:d.error});
+  $('#dummy-toggle').textContent=on?t('отключить дамми'):d.phase==='connecting'?t('подключается…'):t('подключить дамми');
+  $('#dummy-toggle').classList.toggle('on',on);
+  $('#dummy-controls').hidden=!on;
   $('#control-target').disabled=!on;
- }
+ } else { $('#dummy-toggle').textContent=t('подключить дамми'); $('#dummy-toggle').classList.remove('on'); $('#dummy-controls').hidden=true; $('#dummychip').textContent=t('не подключён'); $('#dummychip').className='chip off'; }
  const mode=s.acting?s.mode:'hold';
  for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.classList.toggle('on',b.dataset.mode===mode);
 
@@ -134,6 +151,8 @@ function renderPanel(s){
  wbBtn.disabled=!hasWb;wbBtn.title=hasWb?t('Держит вейблок и закидывает во фриз всех, кто идёт через него'):t('На этой карте нет ВБ, который бот знает');
  const duelBtn=document.querySelector('#styleseg [data-style=duel]');
  duelBtn.classList.toggle('auto',!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
+ const dummyOnline=!!(d&&d.phase==='online');
+ document.querySelector('#wbseg [data-wb="both"]').hidden=!dummyOnline;
  $('#wbrow').hidden=style!=='wb';
  for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb==='both'?pairWb:b.dataset.wb===wb);
  const pin=panel&&panel.pinnedTarget;
@@ -937,6 +956,14 @@ $('#ac_save').addEventListener('click',async()=>{
   if(r.ok&&c){acFill(c);$('#ac_note').textContent=t('сохранено')}else $('#ac_note').textContent=t('не сохранилось')}
  catch{$('#ac_note').textContent=t('не сохранилось')}
  setTimeout(()=>{$('#ac_note').textContent=''},3000);
+});
+$('#diagcopy')?.addEventListener('click',async()=>{
+ try{
+  const d=await(await fetch('/api/diagnostics')).json();
+  await navigator.clipboard.writeText(JSON.stringify(d,null,2));
+  $('#ac_note').textContent=t('диагностика скопирована');
+ }catch{$('#ac_note').textContent=t('не удалось скопировать диагностику')}
+ setTimeout(()=>{$('#ac_note').textContent=''},4000);
 });
 for(const b of document.querySelectorAll('.tab'))b.addEventListener('click',()=>{if(b.dataset.tab==='cfg')pullAutoChat()});
 pullAutoChat();

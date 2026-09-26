@@ -2109,12 +2109,12 @@ export class DdnetBot {
     const who = this.nameOfLive(msg.client_id);
     const whisper = msg.team === CHAT_WHISPER_RECV;
 
-    const mentioned = msg.message.toLowerCase().includes(this.cfg.name.toLowerCase());
+    const mentioned = this.mentionsBot(msg.message);
     if (whisper) this.emit("whisper", msg.message, who);
     else this.emit("chat", `${msg.team === CHAT_TEAM ? "(team) " : ""}${mentioned ? "*" : ""}${msg.message}`, who);
 
     if (this.onList("ignore", who.trim().toLowerCase(), msg.client_id)) return;
-    if (!whisper && this.autoChat.aiEnabled() && mentioned) void this.answerWithAi(who, msg.message);
+    if (this.autoChat.aiEnabled() && (mentioned || whisper)) void this.answerWithAi(who, msg.message);
     else {
       const answer = this.autoChat.onChat({ from: who, text: msg.message, server: false, me: this.cfg.name });
       if (answer !== null) this.autoSay(answer, whisper ? msg.message : null);
@@ -2166,12 +2166,25 @@ export class DdnetBot {
     if (this.aiBusy || now - this.aiLastReplyMs < 7000) return;
     this.aiBusy = true;
     try {
-      const answer = await askG4f(this.autoChat.config().ai, who, message);
+      const cfg = this.autoChat.config().ai;
+      this.emit("event", `AI чат: запрос от ${who} (${cfg.provider}/${cfg.model})`);
+      const answer = await askG4f(cfg, who, message);
       this.aiLastReplyMs = Date.now();
-      this.autoSay(answer);
+      const line = `${who}: ${answer}`;
+      this.autoSay(line);
+      this.emit("event", `AI чат: ответ ${line}`);
     } catch (err) {
-      this.emit("event", `AI чат: ${err instanceof Error ? err.message : String(err)}`);
+      this.emit("event", `AI чат ошибка (${this.autoChat.config().ai.endpoint}): ${err instanceof Error ? err.message : String(err)}`);
     } finally { this.aiBusy = false; }
+  }
+
+  private mentionsBot(message: string): boolean {
+    const normalize = (value: string): string => value.toLocaleLowerCase().replace(/[\u2010-\u2015_]+/gu, "-").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const text = normalize(message);
+    const name = normalize(this.cfg.name);
+    if (name !== "" && text.includes(name)) return true;
+    const compact = (value: string): string => value.replace(/\s+/gu, "");
+    return name !== "" && compact(text).includes(compact(name));
   }
 
   private say(text: string, team = false): boolean {
@@ -2460,6 +2473,7 @@ export class DdnetBot {
         if (this.trek !== null) this.endTrek();
         if (this.idleSinceTick < 0) this.idleSinceTick = this.world.tick;
         if (!this.duelNow() && this.rescueFriend(client, self)) return;
+        if (!this.duelNow() && this.assistNearbyFriend(client, self)) return;
         const holding = this.wbHolding();
 
         if (holding === null && this.nav === null && !this.duelNow() && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
@@ -2502,6 +2516,7 @@ export class DdnetBot {
       this.idleSinceTick = -1;
 
       if (!this.duelNow() && this.rescueFriend(client, self, true)) return;
+      if (!this.duelNow() && this.assistNearbyFriend(client, self, true)) return;
 
       const frozenTarget = this.world.getTee(targetId);
       if (frozenTarget !== undefined && !this.isFriendId(frozenTarget.id)) {
@@ -2939,8 +2954,14 @@ export class DdnetBot {
 
   private frozenTargetIsActionable(self: TeeState, tee: TeeState, d: number): boolean {
     if (!tee.frozen || tee.deepFrozen === true || this.isFriendId(tee.id)) return false;
+    // A frozen enemy is already in the desired state.  Keep it actionable only
+    // while the rope is actually attached; otherwise pickTarget used to keep
+    // selecting it forever while planAction correctly emitted no hook/fire.
+    // That left the bot standing and staring at the frozen tee instead of
+    // returning to the WB or choosing a live threat.
+    if (tee.hookedPlayer !== self.id && self.hookedPlayer !== tee.id) return false;
     if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
-    return d <= TUNING.hookLength + 64 || (d <= BLOCKING_RANGE_PX && this.nearFreeze(tee.pos));
+    return d <= TUNING.hookLength + 64;
   }
 
   private bodyPushCanConnect(self: TeeState, tee: TeeState): boolean {
@@ -3052,7 +3073,10 @@ export class DdnetBot {
         (!finishing && frozenFor > (this.cfg.plannerCfg?.settledFreezeTicks ?? PLANNER_DEFAULTS.settledFreezeTicks) && !frozenActionable);
 
       if (settled) {
-        if (tee.id === this.targetId) keepSettled = true;
+        // A settled frozen enemy must be dropped. Keeping it as the fallback
+        // target defeats the frozenTargetAction guard and makes the bot stare
+        // at the same tee forever after a successful block.
+        if (tee.id === this.targetId && !tee.frozen) keepSettled = true;
         continue;
       }
 
@@ -3696,6 +3720,26 @@ export class DdnetBot {
 
       if (input.fire & 1) input.fire++;
     }
+    this.applyInput(client, this.guard(self, input), self.activeWeapon);
+    return true;
+  }
+
+  private assistNearbyFriend(client: TwClient, self: TeeState, fighting = false): boolean {
+    if (self.frozen || this.mode !== "fight") return false;
+    const friend = this.world
+      .allTees()
+      .filter((t) => t.id !== this.ownId && t.alive && !t.frozen && this.isFriendId(t.id) && vdistance(self.pos, t.pos) <= RESCUE_HAMMER_PX)
+      .filter((t) => this.lineIsClear(self.pos, t.pos))
+      .sort((a, b) => vdistance(self.pos, a.pos) - vdistance(self.pos, b.pos))[0];
+    if (friend === undefined) return false;
+    if (fighting && vdistance(self.pos, friend.pos) > RESCUE_HAMMER_PX) return false;
+    const input: PlayerInput = {
+      ...emptyInput(),
+      targetX: friend.pos.x - self.pos.x,
+      targetY: friend.pos.y - self.pos.y,
+      fire: this.prevInput.fire + 1,
+      wantedWeapon: WEAPON_HAMMER + 1,
+    };
     this.applyInput(client, this.guard(self, input), self.activeWeapon);
     return true;
   }

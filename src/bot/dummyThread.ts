@@ -12,6 +12,7 @@ export type DummyStatus = {
   selfId: number;
 
   duelScore: { name: string; ours: number; theirs: number } | null;
+  error?: string;
 };
 
 type List = "war" | "friend" | "ignore";
@@ -92,7 +93,12 @@ export class DummyThread {
     });
     this.worker = worker;
     worker.on("message", (m: FromDummy) => this.onMessage(m));
-    worker.on("error", (err) => this.out(`the second bot stopped with an error: ${err instanceof Error ? err.message : String(err)}`));
+    worker.on("error", (err) => {
+      const text = err instanceof Error ? err.message : String(err);
+      this.last = { ...this.last, phase: "offline", acting: false, selfId: -1, error: text };
+      this.statusSink?.(this.last);
+      this.out(`the second bot stopped with an error: ${text}`);
+    });
     worker.on("exit", () => {
       if (this.worker !== worker) return;
       this.exited = true;
@@ -128,7 +134,7 @@ export class DummyThread {
         else if (m.line.kind !== "log") console.log(m.line.text);
         return;
       case "status":
-        this.last = m.status;
+        this.last = { ...m.status, error: m.status.phase === "online" ? undefined : this.last.error };
         this.statusSink?.(m.status);
         return;
       case "reply": {

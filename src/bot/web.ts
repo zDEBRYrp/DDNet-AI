@@ -650,6 +650,12 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
       res.end(JSON.stringify(bot.autoChatInfo?.() ?? null));
       return;
     }
+    if (url.pathname === "/api/diagnostics" && req.method === "GET") {
+      const recent = lines.slice(-120).map(({ seq, ...line }) => ({ seq, ...line }));
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify({ generatedAt: new Date().toISOString(), status: bot.status(), lines: recent }));
+      return;
+    }
     if (url.pathname === "/api/chat-mode" && req.method === "GET") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       res.end(JSON.stringify({ mode: bot.chatMode?.() ?? "global" }));
