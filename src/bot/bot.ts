@@ -1177,7 +1177,11 @@ export class DdnetBot {
     const target = this.targetId >= 0 ? this.world.getTee(this.targetId) : undefined;
     return {
       phase: this.phase,
-      acting: this.acting,
+      // "acting" is a live execution state, not the configured mode.  Do
+      // not report a disconnected bot as playing just because it was active
+      // when the connection dropped; the mode field still preserves the
+      // user's selected fight/passive/hold setting for the next reconnect.
+      acting: this.phase === "online" && this.acting,
       brain: this.cfg.planner === true ? "planner" : this.cfg.scripted === true ? "scripted" : "net",
       mode: this.mode,
       server: `${this.cfg.host}:${this.cfg.port}`,
