@@ -1284,8 +1284,11 @@ export class DdnetBot {
     this.lastPosById.clear();
     this.rescueWalkTick = -Infinity;
     this.rescueSaidTick = -Infinity;
+    this.rescueId = -1;
+    this.rescueHammerId = -1;
     this.rescueHammerSince = -1;
     this.rescuePausedUntil.clear();
+    this.rescuePullId = -1;
     this.rescuePullSince = -1;
     this.rescuePullAt = -Infinity;
     this.pullNone.clear();
