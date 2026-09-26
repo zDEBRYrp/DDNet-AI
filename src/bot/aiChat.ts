@@ -56,22 +56,41 @@ function contentOf(value: unknown): string {
     .join(" ");
 }
 
-export async function askG4f(settings: AiChatSettings, name: string, message: string): Promise<string> {
-  const cfg = sanitizeAiChat(settings);
+async function requestCompletion(cfg: AiChatSettings, provider: string, model: string, name: string, message: string): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 18_000);
   try {
-    const res = await fetch(`${cfg.endpoint}/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: cfg.model, provider: cfg.provider, temperature: 0.7, max_tokens: 80, messages: [{ role: "system", content: cfg.systemPrompt }, { role: "user", content: `${name} написал: ${message}` }] }), signal: controller.signal });
+    const res = await fetch(`${cfg.endpoint}/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, provider, temperature: 0.7, max_tokens: 80, messages: [{ role: "system", content: cfg.systemPrompt }, { role: "user", content: `${name} написал: ${message}` }] }), signal: controller.signal });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       const detail = body.replace(/[\r\n\t]+/g, " ").trim().slice(0, 240);
-      throw new Error(`g4f ${cfg.provider}/${cfg.model} HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+      throw new Error(`g4f ${provider}/${model} HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
     }
     const data = await res.json() as { choices?: Array<{ message?: { content?: unknown }; text?: unknown }> };
     const choice = data.choices?.[0];
     const raw = choice?.message?.content ?? choice?.text ?? "";
     const answer = compact(contentOf(raw));
-    if (answer === "") throw new Error(`g4f ${cfg.provider}/${cfg.model} вернул пустой ответ`);
+    if (answer === "") throw new Error(`g4f ${provider}/${model} вернул пустой ответ`);
     return answer;
   } finally { clearTimeout(timer); }
+}
+
+export async function askG4f(settings: AiChatSettings, name: string, message: string): Promise<string> {
+  const cfg = sanitizeAiChat(settings);
+  try {
+    return await requestCompletion(cfg, cfg.provider, cfg.model, name, message);
+  } catch (first) {
+    const fallbackSame = cfg.provider.toLowerCase() === DEFAULT_PROVIDER.toLowerCase() && cfg.model.toLowerCase() === DEFAULT_MODEL.toLowerCase();
+    if (fallbackSame) throw first;
+    try {
+      // G4F providers are external and can fail independently.  Keep the
+      // chosen pair in settings, but make a failed custom route recover with
+      // the locally verified free route instead of dropping the chat reply.
+      return await requestCompletion(cfg, DEFAULT_PROVIDER, DEFAULT_MODEL, name, message);
+    } catch (fallback) {
+      const firstText = first instanceof Error ? first.message : String(first);
+      const fallbackText = fallback instanceof Error ? fallback.message : String(fallback);
+      throw new Error(`${firstText}; fallback ${DEFAULT_PROVIDER}/${DEFAULT_MODEL}: ${fallbackText}`);
+    }
+  }
 }
