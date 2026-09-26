@@ -75,12 +75,13 @@ function pickNode(candidates, probe, minMajor = 24) {
   return { kind: "embedded", path: null, version: null, tooOld };
 }
 
-function botArgs({ port, offline = false, autoUpdate = true, extra = [] }) {
+function botArgs({ port, offline = false, autoUpdate = false, updateSource = "mine", extra = [] }) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("bad port");
   const args = ["start.mjs", "--no-open", "--no-console", "--ready-line", "--web-port", String(port)];
 
   if (offline) args.push("--server", "127.0.0.1:1", "--no-update");
   else if (!autoUpdate) args.push("--no-update");
+  if (updateSource === "evaluna" || updateSource === "mine") args.push("--update-source", updateSource);
   for (const e of extra) if (typeof e === "string") args.push(e);
   return args;
 }

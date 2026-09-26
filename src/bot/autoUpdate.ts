@@ -4,10 +4,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { t } from "../i18n.ts";
 
-const PUBLIC_REPO = "Wranked1/DDNet-AI";
+const PUBLIC_REPO = "zDEBRYrp/DDNet-AI";
 const PRIVATE_REPO = "Wranked1/AiDDNet";
 const TOKEN_FILE = "update-token.txt";
 const BRANCH = "main";
+
+export type UpdateSource = "mine" | "evaluna";
+const SOURCE_REPOS: Record<UpdateSource, string | null> = {
+  mine: "zDEBRYrp/DDNet-AI",
+  // Deliberately unset until the exact Evaluna GitHub repository is provided.
+  evaluna: null,
+};
 
 const API = process.env.DDNET_AI_UPDATE_API ?? "https://api.github.com";
 
@@ -105,8 +112,9 @@ function tokenOf(root: string): string {
   }
 }
 
-export function channelOf(token: string): Channel {
-  return token === "" ? { repo: PUBLIC_REPO, token: "" } : { repo: PRIVATE_REPO, token };
+export function channelOf(token: string, source: UpdateSource = "mine"): Channel {
+  const selected = SOURCE_REPOS[source] ?? PUBLIC_REPO;
+  return token === "" ? { repo: selected, token: "" } : { repo: source === "mine" ? PRIVATE_REPO : selected, token };
 }
 
 function headers(ch: Channel): Record<string, string> {
@@ -154,8 +162,8 @@ async function latestCommit(ch: Channel): Promise<string> {
   return sha;
 }
 
-export async function apply(root: string, sha: string, token = ""): Promise<string[]> {
-  const ch = channelOf(token);
+export async function apply(root: string, sha: string, token = "", source: UpdateSource = "mine"): Promise<string[]> {
+  const ch = channelOf(token, source);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ddnet-ai-upd-"));
   try {
 
@@ -189,8 +197,10 @@ export function startAutoUpdate(
   root: string,
   onEvent: (e: UpdateEvent) => void,
   quit: () => void,
+  options: { source?: UpdateSource; auto?: boolean } = {},
 ): { stop: () => void; check: () => Promise<CheckResult> } {
   let stopped = false;
+  const source = options.source ?? "mine";
   const tick = async (manual = false): Promise<CheckResult> => {
     if (stopped) return { kind: "stopped", text: "" };
 
@@ -202,7 +212,9 @@ export function startAutoUpdate(
     try {
       const token = tokenOf(root);
       const have = currentVersion(root);
-      const sha = await latestCommit(channelOf(token));
+      const channel = channelOf(token, source);
+      if (source === "evaluna" && SOURCE_REPOS.evaluna === null) throw new Error("не указан точный GitHub-репозиторий Evaluna");
+      const sha = await latestCommit(channel);
       if (have === "") {
 
         fs.writeFileSync(stampFile(root), sha);
@@ -210,7 +222,7 @@ export function startAutoUpdate(
       }
       if (sha === have) return { kind: "current", text: "" };
       onEvent({ kind: "found", text: t("есть обновление ({sha}), качаю...", { sha: sha.slice(0, 7) }) });
-      const changed = await apply(root, sha, token);
+      const changed = await apply(root, sha, token, source);
       if (!needsRestart(changed, root)) {
         const text = t("обновлено до {sha}: только описание, бот играет дальше", { sha: sha.slice(0, 7) });
         onEvent({ kind: "current", sha, text });
@@ -226,13 +238,13 @@ export function startAutoUpdate(
       return { kind: "failed", text };
     }
   };
-  void tick();
-  const timer = setInterval(() => void tick(), CHECK_EVERY_MS);
-  timer.unref?.();
+  const timer = options.auto === false ? null : setInterval(() => void tick(), CHECK_EVERY_MS);
+  if (options.auto !== false) void tick();
+  timer?.unref?.();
   return {
     stop: () => {
       stopped = true;
-      clearInterval(timer);
+      if (timer !== null) clearInterval(timer);
     },
     check: () => tick(true),
   };

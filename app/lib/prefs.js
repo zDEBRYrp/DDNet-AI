@@ -25,7 +25,8 @@ const DEFAULTS = Object.freeze({
   history: [],
 
   gpu: true,
-  autoUpdate: true,
+  autoUpdate: false,
+  updateSource: "mine",
 });
 
 const LANGS = new Set(["auto", "ru", "en"]);
@@ -77,6 +78,7 @@ function sanitize(raw) {
   for (const k of ["maximized", "closeToTray", "notifications", "logOpen", "trayHintShown", "startScreen", "gpu", "autoUpdate"]) {
     if (typeof src[k] === "boolean") out[k] = src[k];
   }
+  if (src.updateSource === "mine" || src.updateSource === "evaluna") out.updateSource = src.updateSource;
   if (isValidAccelerator(src.hotkey)) out.hotkey = src.hotkey;
   if (LANGS.has(src.lang)) out.lang = src.lang;
   if (Number.isInteger(src.logHeight) && src.logHeight >= 0 && src.logHeight <= 5000) out.logHeight = src.logHeight;

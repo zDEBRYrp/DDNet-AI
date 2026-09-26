@@ -463,7 +463,7 @@ ${line(56)}
   }
 
   let stopAutoUpdate = null;
-  if (flags["no-update"] === undefined) {
+  {
     try {
       const { startAutoUpdate } = await import("./src/bot/autoUpdate.ts");
       const updater = startAutoUpdate(
@@ -477,6 +477,7 @@ ${line(56)}
         },
 
         () => void stop(75),
+        { source: flags["update-source"] === "evaluna" ? "evaluna" : "mine", auto: flags["no-update"] === undefined },
       );
       stopAutoUpdate = updater.stop;
 

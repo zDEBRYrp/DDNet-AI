@@ -647,6 +647,7 @@ async function loadPrefs() {
   $("#st-tray").checked = prefsCache.closeToTray;
   $("#st-gpu").checked = prefsCache.gpu !== false;
   $("#st-autoupdate").checked = prefsCache.autoUpdate !== false;
+  if ($("#st-update-source")) $("#st-update-source").value = prefsCache.updateSource || "mine";
   $("#st-tray").disabled = !prefsCache.trayAvailable;
   $("#st-login").checked = prefsCache.openAtLogin;
   $("#st-login-row").hidden = !prefsCache.loginSupported;
@@ -673,6 +674,10 @@ $("#st-start").addEventListener("change", (e) => setPref({ startScreen: e.target
 $("#st-autoupdate").addEventListener("change", async (e) => {
   const res = await setPref({ autoUpdate: e.target.checked });
   if (res.ok) toast({ text: t("Настройка применится после перезапуска бота"), kind: "info" });
+});
+$("#st-update-source")?.addEventListener("change", async (e) => {
+  const res = await setPref({ updateSource: e.target.value });
+  if (res.ok) toast({ text: t("Источник обновлений сохранён"), kind: "info" });
 });
 $("#st-tray").addEventListener("change", (e) => setPref({ closeToTray: e.target.checked }));
 $("#st-gpu").addEventListener("change", async (e) => {

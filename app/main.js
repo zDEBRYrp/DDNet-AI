@@ -447,7 +447,7 @@ function main() {
     runtime = resolveRuntime();
     addLog("app", t("папка бота: {root}", { root }));
     addLog("app", OFFLINE ? t("запускаю: {what} (без сети)", { what: runtime.label }) : t("запускаю: {what}", { what: runtime.label }));
-    bot = new BotSupervisor({ root, runtime, preferredPort: prefs.get("webPort"), offline: OFFLINE, autoUpdate: prefs.get("autoUpdate") !== false });
+    bot = new BotSupervisor({ root, runtime, preferredPort: prefs.get("webPort"), offline: OFFLINE, autoUpdate: prefs.get("autoUpdate") === true, updateSource: prefs.get("updateSource") || "mine" });
     bot.on("line", ({ stream, text }) => addLog(stream, stream === "app" ? tr(text) : text));
     bot.on("spawn", ({ pid, port }) => {
       addLog("app", t("бот запущен, pid {pid}, порт {port}", { pid, port }));
@@ -1077,6 +1077,7 @@ function main() {
         closeToTray: prefs.get("closeToTray"),
         gpu: prefs.get("gpu"),
         autoUpdate: prefs.get("autoUpdate"),
+        updateSource: prefs.get("updateSource"),
         notifications: prefs.get("notifications"),
         favorites: prefs.get("favorites"),
         recent: prefs.get("recent"),

@@ -91,13 +91,14 @@ function killTree(child) {
 }
 
 class BotSupervisor extends EventEmitter {
-  constructor({ root, runtime, preferredPort = 7777, offline = false, autoUpdate = true, readyTimeoutMs = 90_000 }) {
+  constructor({ root, runtime, preferredPort = 7777, offline = false, autoUpdate = false, updateSource = "mine", readyTimeoutMs = 90_000 }) {
     super();
     this.root = root;
     this.runtime = runtime;
     this.preferredPort = preferredPort;
     this.offline = offline;
     this.autoUpdate = autoUpdate;
+    this.updateSource = updateSource;
     this.readyTimeoutMs = readyTimeoutMs;
     this.policy = new RestartPolicy();
     this.child = null;
@@ -133,7 +134,7 @@ class BotSupervisor extends EventEmitter {
     }
     this.forceFreePort = false;
     if (this.state === "stopped") return;
-    const args = [...this.runtime.prefixArgs, ...botArgs({ port: this.port, offline: this.offline, autoUpdate: this.autoUpdate })];
+    const args = [...this.runtime.prefixArgs, ...botArgs({ port: this.port, offline: this.offline, autoUpdate: this.autoUpdate, updateSource: this.updateSource })];
     let child;
     try {
       child = spawn(this.runtime.command, args, {
