@@ -52,9 +52,15 @@ function compact(text: string): string {
 
 function contentOf(value: unknown): string {
   if (typeof value === "string") return value;
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    const part = value as { text?: unknown; content?: unknown };
+    if (typeof part.text === "string") return part.text;
+    if (typeof part.content === "string") return part.content;
+    return "";
+  }
   if (!Array.isArray(value)) return "";
   return value
-    .map((part) => part !== null && typeof part === "object" && typeof (part as { text?: unknown }).text === "string" ? (part as { text: string }).text : "")
+    .map((part) => contentOf(part))
     .filter(Boolean)
     .join(" ");
 }

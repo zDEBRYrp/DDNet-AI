@@ -2281,7 +2281,7 @@ export class DdnetBot {
       const error = err instanceof Error ? err.message : String(err);
       const cfg = this.autoChat.config().ai;
       this.aiStatus = { state: "error", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: error.slice(0, 1000) };
-      this.emit("event", `AI чат ошибка (${cfg.endpoint}): ${error}`);
+      this.emit("event", `AI чат ошибка (${cfg.provider}/${cfg.model}; ${cfg.endpoint}): ${error}`);
     } finally {
       this.aiBusy = false;
       this.scheduleAiRetry();
