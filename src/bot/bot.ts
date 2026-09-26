@@ -3032,6 +3032,21 @@ export class DdnetBot {
       const hp = { x: a.pos.x + Math.cos(r) * HAMMER_REACH_AHEAD_PX, y: a.pos.y + Math.sin(r) * HAMMER_REACH_AHEAD_PX };
       for (const b of this.world.allTees()) if (b.id !== a.id && b.alive && vdistance(hp, b.pos) < HAMMER_REACH_PX) this.lastTouch.set(b.id, { by: a.id, tick });
     }
+    // A block is only ours while nobody else has interacted with the victim
+    // after the bot's freeze.  Without this invalidation, a later hook/hammer
+    // from another player could still be counted when the victim eventually
+    // died, producing false "blocked" credits.
+    if (this.pendingBlocks.size > 0) {
+      for (const [id, frozenAt] of this.pendingBlocks) {
+        const tee = this.world.getTee(id);
+        if (tee === undefined || !tee.alive) continue;
+        const last = this.lastTouch.get(id);
+        if (last !== undefined && last.tick >= frozenAt && last.by !== this.ownId) {
+          this.pendingBlocks.delete(id);
+          this.emit("event", `block credit lost for ${this.nameOfLive(id)}: another player touched them`);
+        }
+      }
+    }
     for (const tee of this.world.allTees()) {
       if (!tee.alive) {
         this.thawTickById.delete(tee.id);
