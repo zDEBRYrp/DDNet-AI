@@ -333,7 +333,6 @@ export type DecisionInfo = {
 
 const THROW_LANDED_TICKS = 5;
 
-const FROZEN_PLAN_MIN_TICKS = 30;
 
 export type PlanStep = { dir: number; jump: number; hook: number; fire: number; aim: number };
 type StepDist = { pLeft: number; pRight: number; pJump: number; pHook: number; pFire: number; aim: number; aimSpread: number };
@@ -1021,7 +1020,10 @@ export class Planner {
   decide(world: SimWorld, selfId: number, enemyId: number, prev: PlayerInput, enemyInput: PlayerInput): PlayerInput {
     const en = world.getTee(enemyId);
     const steps = this.cfg.steps;
-    const long = this.cfg.frozenTargetSteps > steps && en !== undefined && en.frozen && en.freezeTicksLeft >= FROZEN_PLAN_MIN_TICKS;
+    // A short remaining freeze is still the most urgent moment: the live
+    // bot suppresses hammer on frozen enemies, so falling back to a normal
+    // plan here used to produce a harmless-looking aim/idle action.
+    const long = this.cfg.frozenTargetSteps > steps && en !== undefined && en.frozen;
     if (!long) {
       this.syncGrid();
       return this.decideOnce(world, selfId, enemyId, prev, enemyInput);
@@ -1377,7 +1379,7 @@ export class Planner {
       enemyFrozen: en.frozen,
       enemyAlive: en.alive,
     };
-    if (this.cfg.frozenThrow > 0 && frozenThrowWorthTrying(situation) && en.freezeTicksLeft >= FROZEN_PLAN_MIN_TICKS) {
+    if (this.cfg.frozenThrow > 0 && frozenThrowWorthTrying(situation)) {
       const kept: { plan: PlanStep[]; score: number }[] = [];
       this.trackRollout = true;
       for (const plan of frozenThrowLines(this.cfg.steps, this.cfg.trackAim ? 0 : aimAt)) {

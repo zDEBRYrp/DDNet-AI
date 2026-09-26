@@ -45,13 +45,17 @@ export function frozenThrowWorthTrying(s: ThrowSituation): boolean {
 
 export function frozenThrowLines(steps: number, at: number): PlanStep[][] {
   const mk = (fn: (s: number) => PlanStep): PlanStep[] => Array.from({ length: steps }, (_, s) => fn(s));
-  const lines = throwLines(steps, at);
+  // A frozen enemy must not be hammered: the live action layer deliberately
+  // suppresses fire for that target.  Keeping hammer variants in the rollout
+  // made the planner select trajectories that looked good in simulation but
+  // became idle after the live fire=0 safety override.
+  const lines: PlanStep[][] = [];
   const third = Math.max(3, Math.round(steps / 3));
   for (const dir of [-1, 0, 1]) {
 
     for (const h of [2, 3, 5]) {
       if (h + 1 >= steps) continue;
-      lines.push(mk((s) => ({ dir, jump: s === h - 1 ? 1 : 0, hook: s < h ? 1 : 0, fire: s === h || s === h + 1 ? 1 : 0, aim: at })));
+      lines.push(mk((s) => ({ dir, jump: s === h - 1 ? 1 : 0, hook: s < h ? 1 : 0, fire: 0, aim: at })));
     }
 
     lines.push(mk((s) => ({ dir, jump: s === 0 || s === third ? 1 : 0, hook: s < third + 1 ? 1 : 0, fire: 0, aim: at })));
