@@ -34,11 +34,13 @@ export function sanitizeAiChat(raw: unknown): AiChatSettings {
     (provider.toLowerCase() === "gemini" && model.toLowerCase() === "gemini-2.0-flash") ||
     (provider.toLowerCase() === "cloudflare" && model.toLowerCase().includes("llama"));
   const staleCloudflareModel = provider.toLowerCase() === "cloudflare";
+  const migrated = oldDefault || staleCloudflareModel;
+  const endpoint = clean(o.endpoint, 300, DEFAULT_ENDPOINT).replace(/\/+$/u, "");
   return {
     on: o.on === true,
-    endpoint: clean(o.endpoint, 300, DEFAULT_ENDPOINT).replace(/\/+$/u, ""),
-    provider: oldDefault || staleCloudflareModel ? DEFAULT_PROVIDER : provider,
-    model: oldDefault || staleCloudflareModel ? DEFAULT_MODEL : model,
+    endpoint: migrated && (endpoint === "http://127.0.0.1:1337/v1" || endpoint === "http://localhost:1337/v1") ? DEFAULT_ENDPOINT : endpoint,
+    provider: migrated ? DEFAULT_PROVIDER : provider,
+    model: migrated ? DEFAULT_MODEL : model,
     systemPrompt: clean(o.systemPrompt, 1200, DEFAULT_PROMPT),
   };
 }
