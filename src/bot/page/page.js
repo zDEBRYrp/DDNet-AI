@@ -903,7 +903,6 @@ const TOGGLES=[['#troute','route'],['#ttraps','traps'],['#tnames','names'],['#tc
  if(!v||typeof v!=='object')return;
  if(v.mode==='map'||v.mode==='ent'||v.mode==='both'){view.setMode(v.mode);$('#tmode').textContent=modeNames[v.mode];$('#tmode').className='ghost'+(v.mode!=='map'?' on':'')}
  if(v.show&&typeof v.show==='object')for(const [id,key] of TOGGLES)if(typeof v.show[key]==='boolean'){view.toggle(key,v.show[key]);$(id).className='ghost'+(v.show[key]?' on':'')}
- if(typeof v.sound==='boolean'){muted=!v.sound;$('#tsound').className='ghost'+(muted?'':' on')}
  if(Number.isFinite(v.zoom)&&v.zoom>=3&&v.zoom<=300){$('#zoom').value=String(v.zoom);view.setZoom(100/v.zoom)}
  const mini=document.documentElement.classList.contains('mini');
  if(!mini&&typeof v.tab==='string'&&v.tab!=='game'){const b=document.querySelector('.tab[data-tab="'+v.tab+'"]');if(b)b.click()}

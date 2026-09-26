@@ -2756,14 +2756,6 @@ export class DdnetBot {
     return this.onList("friend", (card.name ?? "").trim().toLowerCase(), id) || this.clanFriend((card.clan ?? "").trim().toLowerCase(), id);
   }
 
-  private isExplicitFriendId(id: number): boolean {
-    const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === id);
-    if (card === undefined) return false;
-    const name = (card.name ?? "").trim().toLowerCase();
-    const bare = name.replace(DUPLICATE_PREFIX, "");
-    return this.partnerKeys.has(bare) || this.relations.friend.has(name) || this.relations.friend.has(bare);
-  }
-
   private reachable(from: Vec2, tee: TeeState): boolean {
     const w = this.world.collision.width;
     const a = Math.trunc(from.y / 32) * w + Math.trunc(from.x / 32);
@@ -2876,11 +2868,7 @@ export class DdnetBot {
     }
     for (const [victim, on] of roping) {
       const had = this.lastTouch.get(victim);
-      // Prefer our own hook when several players are attached.  Choosing the
-      // smallest client id made the block counter credit another player even
-      // while we were the one holding the victim.
-      const by = on.includes(this.ownId) ? this.ownId : had !== undefined && on.includes(had.by) ? had.by : Math.min(...on);
-      this.lastTouch.set(victim, { by, tick });
+      this.lastTouch.set(victim, { by: had !== undefined && on.includes(had.by) ? had.by : Math.min(...on), tick });
     }
     for (const a of this.world.allTees()) {
       if (!a.alive) continue;
@@ -3600,7 +3588,7 @@ export class DdnetBot {
 
   private rescuable(self: TeeState, t: TeeState | undefined): t is TeeState {
     if (t === undefined || t.id === this.ownId || !t.alive || !t.frozen || t.deepFrozen === true || t.freezeTicksLeft < RESCUE_MIN_FREEZE_TICKS) return false;
-    if (!this.isExplicitFriendId(t.id) || this.world.notPlaying(t.id)) return false;
+    if (!this.isFriendId(t.id) || this.world.notPlaying(t.id)) return false;
     if ((this.rescuePausedUntil.get(t.id) ?? -Infinity) > this.world.tick) return false;
     if (vdistance(self.pos, t.pos) > RESCUE_RANGE_PX) return false;
     const wb = this.wbHolding();
@@ -3611,7 +3599,7 @@ export class DdnetBot {
 
   private rescueFriend(client: TwClient, self: TeeState, fighting = false): boolean {
     if (self.frozen || this.mode !== "fight") return false;
-    if (fighting && this.world.allTees().some((t) => t.id !== this.ownId && t.alive && t.hookedPlayer === this.ownId && !this.isExplicitFriendId(t.id))) return false;
+    if (fighting && this.world.allTees().some((t) => t.id !== this.ownId && t.alive && t.hookedPlayer === this.ownId && !this.isFriendId(t.id))) return false;
     const cands = this.world
       .allTees()
       .filter((t) => this.rescuable(self, t))
