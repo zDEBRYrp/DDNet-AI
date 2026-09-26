@@ -147,18 +147,32 @@ export function standable(col: Collision, tx: number, ty: number): boolean {
 export function wayblockFor(mapName: string, col?: Collision): WbDef | null {
   const want = mapName.trim().toLowerCase();
   const def = WAYBLOCKS.find((d) => d.name.toLowerCase() === want);
-  if (def === undefined) return null;
-  if (col === undefined) return def;
-  if (col.width !== def.size.w || col.height !== def.size.h) return null;
-  for (const s of [def.left, def.right]) for (const p of s.spots) if (!standable(col, p.tx, p.ty)) return null;
-  for (const c of def.crossings) {
-    for (const a of c.anchors) {
+  if (col === undefined) return def ?? null;
+
+  const fits = (candidate: WbDef): boolean => {
+    for (const s of [candidate.left, candidate.right]) for (const p of s.spots) if (!standable(col, p.tx, p.ty)) return false;
+    for (const c of candidate.crossings) for (const a of c.anchors) {
       const x = a.tx * 32 + 16;
       const y = a.ty * 32 + 16;
-      if (!col.isSolid(x, y) || col.isNoHook(x, y)) return null;
+      if (!col.isSolid(x, y) || col.isNoHook(x, y)) return false;
+    }
+    return true;
+  };
+
+  if (def !== undefined && col.width === def.size.w && col.height === def.size.h && fits(def)) return def;
+
+  // Community maps often copy the same WB and move or slightly resize it.
+  // Try a bounded translation instead of requiring an exact map name.
+  for (const base of WAYBLOCKS) {
+    const dw = col.width - base.size.w;
+    const dh = col.height - base.size.h;
+    if (Math.abs(dw) > 96 || Math.abs(dh) > 96) continue;
+    for (let dy = -64; dy <= 64 + dh; dy++) for (let dx = -64; dx <= 64 + dw; dx++) {
+      const candidate = shiftDef(base, mapName, dx, dy, { w: col.width, h: col.height });
+      if (fits(candidate)) return candidate;
     }
   }
-  return def;
+  return null;
 }
 
 export function sideDef(def: WbDef, s: WbSide): WbSideDef {

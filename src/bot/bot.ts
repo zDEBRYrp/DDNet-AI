@@ -3059,8 +3059,8 @@ export class DdnetBot {
       if (tee.hookedPlayer === ownId) score += 1000;
       if (me?.hookedPlayer === tee.id) score += 800;
       if (tee.frozen && frozenActionable) score += 900;
-      if (!tee.frozen && bodyPushCanConnect(me ?? tee, tee)) score += 300;
-      if (!tee.frozen && d <= BLOCKING_RANGE_PX && !bodyPushCanConnect(me ?? tee, tee)) score -= 250;
+      if (!tee.frozen && this.bodyPushCanConnect(me ?? tee, tee)) score += 300;
+      if (!tee.frozen && d <= BLOCKING_RANGE_PX && !this.bodyPushCanConnect(me ?? tee, tee)) score -= 250;
 
       if (tee.id === this.targetId && tee.frozen && d < BLOCKING_RANGE_PX) score += this.cfg.plannerCfg?.blockHoldScore ?? PLANNER_DEFAULTS.blockHoldScore;
       if (finishing && d < BLOCKING_RANGE_PX) score += FINISH_BLOCK_SCORE;
