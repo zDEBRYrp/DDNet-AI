@@ -143,7 +143,10 @@ function renderPanel(s){
  } else { $('#dummy-toggle').textContent=t('подключить дамми'); $('#dummy-toggle').classList.remove('on'); $('#dummy-controls').hidden=true; $('#control-target').disabled=true; $('#dummychip').textContent=t('не подключён'); $('#dummychip').className='chip off'; }
   const dummyOnline=!!(d&&d.phase==='online');
   const selectedDummy=controlTarget==='dummy'&&dummyOnline;
-  const selectedMode=selectedDummy?(d.acting?d.mode:'hold'):(s.acting?s.mode:'hold');
+  // Show the selected bot's configured mode, not whether it happened to emit
+  // movement on this particular tick.  Dummy may be idle while still being
+  // configured for fight/passive/goto.
+  const selectedMode=selectedDummy?(d.mode||'hold'):(s.mode||'hold');
   const selectedWbMode=selectedDummy?(d.wbMode??null):(panel?panel.wbMode:null);
   const selectedTarget=selectedDummy?d.target:(panel&&panel.pinnedTarget);
   const selectedHome=selectedDummy?!!d.home:!!(panel&&panel.home);
