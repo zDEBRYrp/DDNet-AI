@@ -2606,6 +2606,19 @@ export class DdnetBot {
         if (!this.duelNow() && this.rescueFriend(client, self)) return;
         const holding = this.wbHolding();
 
+        // Reaching the selected WB is the first job after spawn.  Previously
+        // the crowd-search below could start a competing walk before this
+        // branch ran, leaving the bot pacing at spawn instead of entering the
+        // chosen left/right passage.
+        if (holding !== null && this.nav === null && !this.duelNow()) {
+          const here = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
+          const side = this.wbChooser.side;
+          if (side !== null && !inWbHall(holding, side, here.tx, here.ty)) {
+            this.walkToWb(ownId, self);
+            if (this.nav !== null) return;
+          }
+        }
+
         if (holding === null && this.nav === null && !this.duelNow() && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
           const spot = this.gameSpot(ownId, self.pos);
           if (spot !== null) {

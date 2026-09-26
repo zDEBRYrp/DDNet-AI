@@ -85,16 +85,12 @@
    <select id="emo" title="Эмоция бота"><option value="">эмоция</option><option value="hearts">сердечки</option><option value="exclamation">!</option><option value="question">?</option><option value="sorry">извини</option><option value="drop">капля</option><option value="splat">splat</option><option value="zzz">zzz</option></select>
   </div>
   <div class="ctl-row ctl-low"><label class="check" title="Короче расчёт и новый план раз в два снимка: играет слабее, но успевает за сервером на слабом ПК (!low on / !low off). Сам не включается"><input type="checkbox" id="lowcpu"> Режим для слабого ПК</label></div>
-  <div class="ctl-dummy" id="dummyrow">
-   <div class="ctl-row"><span class="lbl">Dummy</span><button class="ghost mini" id="dummy-toggle" type="button" title="Подключить или отключить второго бота">подключить дамми</button><span class="chip off" id="dummychip">не подключён</span></div>
-   <div class="ctl-row" id="dummy-controls" hidden><span class="lbl">Управлять</span><select id="control-target"><option value="main">основной бот</option><option value="dummy">второй бот</option></select><button class="ghost mini" id="dummy-reset" type="button" title="Убить и возродить второй бот">Reset 2</button></div>
-   <div class="hint" id="dummytext"></div>
-  </div>
   <div class="ctl-reply" id="reply" hidden></div>
  </div>
  <div class="card">
   <div class="k">Состояние</div>
   <div class="stline"><span class="chip" id="stfz">свободен</span><span class="chip slow" id="stcpu" hidden>ПК не успевает</span><span class="sttgt" id="sttgt">цели нет</span></div>
+  <div class="hint" id="dummy-state">Dummy: не подключён</div>
   <div class="grid stats" id="grid"></div>
  </div>
  <div class="card players"><div class="k">Игроки <span id="pcount"></span></div><div class="plist" id="plist"></div><div class="phint">Клик по нику: цель, идти к нему, тима или вар</div></div>

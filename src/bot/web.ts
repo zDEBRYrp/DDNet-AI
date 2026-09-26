@@ -121,6 +121,7 @@ export type WebBot = {
   statsLine: () => string;
 
   handleConsole: (line: string) => string | Promise<string>;
+  handleConsoleBoth?: (line: string) => string | Promise<string>;
   setProfile?: (profile: { name?: unknown; clan?: unknown; skin?: unknown }) => string;
   setDummyProfile?: (profile: { name?: unknown; clan?: unknown; skin?: unknown }) => void;
   setDummyEnabled?: (enabled: boolean, name?: string) => void | Promise<void>;
@@ -731,8 +732,9 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
         let reply = "";
         let line = "";
         try {
-          line = String((JSON.parse(raw) as { line?: string }).line ?? "");
-          reply = (await bot.handleConsole(line)) ?? "";
+          const body = JSON.parse(raw) as { line?: string; both?: boolean };
+          line = String(body.line ?? "");
+          reply = (await (body.both ? (bot.handleConsoleBoth?.(line) ?? bot.handleConsole(line)) : bot.handleConsole(line))) ?? "";
         } catch (err) {
           reply = err instanceof Error ? err.message : String(err);
         }

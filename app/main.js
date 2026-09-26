@@ -558,13 +558,14 @@ function main() {
       if (wasPaused) {
 
         resumeMode = modeBeforePause === "passive" ? "passive" : "fight";
-        await bot.command(resumeMode === "passive" ? "!mode passive" : "!go");
+        const line = resumeMode === "passive" ? "!mode passive" : "!go";
+        await (typeof bot.commandBoth === "function" ? bot.commandBoth(line) : bot.command(line));
         modeBeforePause = null;
       } else {
         const m = lastStatus !== null ? lastStatus.mode : null;
         modeBeforePause = typeof m === "string" && m !== "hold" && m !== "goto" ? m : null;
 
-        await bot.command("!mode hold");
+        await (typeof bot.commandBoth === "function" ? bot.commandBoth("!mode hold") : bot.command("!mode hold"));
       }
       lastStatus = { ...(lastStatus ?? {}), mode: wasPaused ? resumeMode : "hold", acting: wasPaused };
       toast(wasPaused ? t("Бот снова играет") : t("Бот на паузе: стоит на месте"));

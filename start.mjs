@@ -448,6 +448,14 @@ ${line(56)}
 
       return dummy.handleConsole(rest.startsWith("!") || rest.startsWith("?") ? rest : `!${rest}`).then((r) => `${dummyName}: ${r}`);
     };
+    bot.handleConsoleBoth = async (lineIn) => {
+      if (dummy === null || /^\s*[!?]d\b/i.test(lineIn)) return bot.handleConsole(lineIn);
+      if (/^\s*[!?](?:wb\s+both|lang\b|low\b)/i.test(lineIn)) return bot.handleConsole(lineIn);
+      const mainReply = await bot.handleConsole(lineIn);
+      const dummyLine = lineIn.trim().startsWith("!") || lineIn.trim().startsWith("?") ? lineIn.trim() : `!${lineIn.trim()}`;
+      const dummyReply = await dummy.handleConsole(dummyLine);
+      return dummyReply ? `${mainReply}${mainReply ? "; " : ""}${dummyName}: ${dummyReply}` : mainReply;
+    };
   };
   if (dummyWanted) await setupDummy();
 

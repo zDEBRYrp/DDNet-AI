@@ -78,14 +78,10 @@ function iconSvg(name){return '<svg class="ic" viewBox="0 0 16 16" aria-hidden="
 for(const i of document.querySelectorAll('i[data-ic]'))i.outerHTML=iconSvg(i.dataset.ic);
 
 let replyTimer=0;
-let controlTarget='main';
 async function botCmd(v,show){
  let reply='';
- const pair=/^!wb\s+both\s*$/i.test(v);
- // Normal controls apply only to the selected bot. The pair command is the
- // one deliberate exception: start.mjs assigns opposite WB sides to both.
- const line=pair||controlTarget==='main'?v:'!d '+v;
- try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
+ const both=!/^!d\b/i.test(v);
+ try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:v,both})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
  if(show&&reply){const box=$('#reply');box.textContent=tr(reply.split('\n')[0]);box.hidden=false;clearTimeout(replyTimer);replyTimer=setTimeout(()=>{box.hidden=true},5000)}
  tick();
  return reply;
@@ -104,19 +100,6 @@ $('#aspec').addEventListener('click',()=>void botCmd(panel&&panel.spectating?'!j
 $('#ahome').addEventListener('click',()=>void botCmd(panel&&panel.home?'!home off':'!home',true));
 
 $('#lowcpu').addEventListener('change',()=>void botCmd($('#lowcpu').checked?'!low on':'!low off',true));
-$('#control-target').addEventListener('change',(e)=>{controlTarget=e.target.value==='dummy'?'dummy':'main'});
-$('#dummy-reset').addEventListener('click',()=>{controlTarget='dummy';void botCmd('!reset',true)});
-$('#dummy-toggle').addEventListener('click',async()=>{
- const on=lastStatus?.dummy?.phase==='online'||lastStatus?.dummy?.phase==='connecting';
- try{
-  const cfg=await(await fetch('/api/launch')).json();
-  const body={dummy:on?'off':'on'};
-  if(typeof cfg.dummyName==='string')body.dummyName=cfg.dummyName;
-  const r=await(await fetch('/api/launch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
-  $('#dummytext').textContent=r.reply||'';
- }catch{}
- tick();
-});
 function renderPanel(s){
  panel=s.panel||null;
  lastStatus=s;
@@ -128,32 +111,21 @@ function renderPanel(s){
  if(pid!==partnerRowId){partnerRowId=pid;playersKey=''}
 
  partnerRowName=d&&d.name?String(d.name):'';
- $('#dummyrow').hidden=false;
  if(d){
   const on=d.phase==='online';
   const connecting=d.phase==='connecting';
-  $('#dummychip').textContent=connecting?t('подключается'):!on?t('не в игре'):d.frozen?t('во фризе'):d.acting?t('свободен'):t('стоит');
-  $('#dummychip').className='chip '+(connecting?'connecting':!on?'off':d.frozen?'frozen':'free');
-  $('#dummytext').textContent=d.name+(d.wb?' · '+(d.wb==='WB left'?t('держит ВБ слева'):t('держит ВБ справа')):'')+(d.target?' · '+t('цель: {name}',{name:d.target}):'');
-  if(d.error)$('#dummytext').textContent+=' · '+t('ошибка: {error}',{error:d.error});
-  $('#dummy-toggle').textContent=on?t('отключить дамми'):d.phase==='connecting'?t('подключается…'):t('подключить дамми');
-  $('#dummy-toggle').classList.toggle('on',on);
-  $('#dummy-controls').hidden=!on;
-  $('#control-target').disabled=!on;
- } else { $('#dummy-toggle').textContent=t('подключить дамми'); $('#dummy-toggle').classList.remove('on'); $('#dummy-controls').hidden=true; $('#control-target').disabled=true; $('#dummychip').textContent=t('не подключён'); $('#dummychip').className='chip off'; }
-  const dummyOnline=!!(d&&d.phase==='online');
-  const selectedDummy=controlTarget==='dummy'&&dummyOnline;
-  // Show the selected bot's configured mode, not whether it happened to emit
-  // movement on this particular tick.  Dummy may be idle while still being
-  // configured for fight/passive/goto.
-  const selectedMode=selectedDummy?(d.mode||'hold'):(s.mode||'hold');
-  const selectedWbMode=selectedDummy?(d.wbMode??null):(panel?panel.wbMode:null);
-  // A dummy can have a live target and a separately pinned target.  The
-  // latter is the control state the user selected, so do not hide it behind
-  // the worker's transient target name.
-  const selectedTarget=selectedDummy?(d.pinnedTarget||d.target):(panel&&panel.pinnedTarget);
-  const selectedHome=selectedDummy?!!d.home:!!(panel&&panel.home);
-  const selectedDuel=selectedDummy?!!d.inDuel:!!(panel&&panel.inDuel);
+  const state=d.phase==='connecting'?t('подключается'):!on?t('не в игре'):d.frozen?t('во фризе'):d.acting?t('свободен'):t('стоит');
+  let text=`Dummy: ${d.name||'—'} · ${state}`;
+  if(d.wb)text+=` · ${d.wb}`;
+  if(d.error)text+=` · ${t('ошибка: {error}',{error:d.error})}`;
+  $('#dummy-state').textContent=text;
+ } else $('#dummy-state').textContent=t('Dummy: не подключён');
+ const dummyOnline=!!(d&&d.phase==='online');
+ const selectedMode=s.mode||'hold';
+ const selectedWbMode=panel?panel.wbMode:null;
+ const selectedTarget=panel&&panel.pinnedTarget;
+ const selectedHome=!!(panel&&panel.home);
+ const selectedDuel=!!(panel&&panel.inDuel);
   const mode=selectedMode;
  for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.classList.toggle('on',b.dataset.mode===mode);
 
@@ -163,7 +135,7 @@ function renderPanel(s){
  const wbBtn=document.querySelector('#styleseg [data-style=wb]');
  wbBtn.disabled=!hasWb;wbBtn.title=hasWb?t('Держит вейблок и закидывает во фриз всех, кто идёт через него'):t('На этой карте нет ВБ, который бот знает');
  const duelBtn=document.querySelector('#styleseg [data-style=duel]');
- duelBtn.classList.toggle('auto',!selectedDummy&&!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
+ duelBtn.classList.toggle('auto',!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
  document.querySelector('#wbseg [data-wb="both"]').hidden=!dummyOnline;
  $('#wbrow').hidden=style!=='wb';
  const pairActive=dummyOnline&&((panel&&panel.wbMode==='left'&&d.wbMode==='right')||(panel&&panel.wbMode==='right'&&d.wbMode==='left'));

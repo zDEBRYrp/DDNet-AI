@@ -269,6 +269,11 @@ class BotSupervisor extends EventEmitter {
     return request(this.port, "POST", "/cmd", { line });
   }
 
+  commandBoth(line) {
+    if (this.state !== "running") return Promise.reject(new Error("бот ещё не запущен"));
+    return request(this.port, "POST", "/cmd", { line, both: true });
+  }
+
   status() {
     if (this.state !== "running") return Promise.reject(new Error("бот ещё не запущен"));
     return request(this.port, "GET", "/api", undefined, 2000);
