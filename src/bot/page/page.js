@@ -160,7 +160,7 @@ function renderPanel(s){
  const wbBtn=document.querySelector('#styleseg [data-style=wb]');
  wbBtn.disabled=!hasWb;wbBtn.title=hasWb?t('Держит вейблок и закидывает во фриз всех, кто идёт через него'):t('На этой карте нет ВБ, который бот знает');
  const duelBtn=document.querySelector('#styleseg [data-style=duel]');
- duelBtn.classList.toggle('auto',!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
+ duelBtn.classList.toggle('auto',!selectedDummy&&!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
  document.querySelector('#wbseg [data-wb="both"]').hidden=!dummyOnline;
  $('#wbrow').hidden=style!=='wb';
  for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb==='both'?pairWb:b.dataset.wb===wb);
@@ -168,7 +168,7 @@ function renderPanel(s){
  $('#tgt').textContent=pin?t('только {name}',{name:pin}):t('сам выбирает');
  $('#tgt').classList.toggle('pinned',!!pin);
  $('#tgtclear').hidden=!pin;
- const walking=s.mode==='goto';
+ const walking=mode==='goto';
  $('#walk').hidden=!walking;
  if(walking)$('#walktext').textContent=doingText||t('идёт по !goto');
  const spec=!!(panel&&panel.spectating);
