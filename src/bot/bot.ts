@@ -906,6 +906,13 @@ export class DdnetBot {
     return cfg;
   }
 
+  async testAiChat(): Promise<string> {
+    const cfg = this.autoChat.config().ai;
+    const answer = await askG4f(cfg, this.cfg.name, "Проверка связи. Ответь двумя словами.");
+    this.emit("event", `AI чат тест: ${cfg.provider}/${cfg.model} -> ${answer}`);
+    return answer;
+  }
+
   chatMode(): "global" | "local" { return this.chatTeam ? "local" : "global"; }
   setChatMode(mode: unknown): "global" | "local" {
     this.chatTeam = mode === "local" || mode === "team";

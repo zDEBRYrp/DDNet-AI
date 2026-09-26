@@ -965,6 +965,14 @@ $('#diagcopy')?.addEventListener('click',async()=>{
  }catch{$('#ac_note').textContent=t('не удалось скопировать диагностику')}
  setTimeout(()=>{$('#ac_note').textContent=''},4000);
 });
+$('#aitest')?.addEventListener('click',async()=>{
+ $('#ac_note').textContent=t('проверяю AI...');
+ try{
+  const r=await fetch('/api/autochat/test',{method:'POST'});const d=await r.json();
+  $('#ac_note').textContent=r.ok?t('AI работает: {answer}',{answer:d.answer||'—'}):t('AI ошибка: {error}',{error:d.error||'неизвестно'});
+ }catch(e){$('#ac_note').textContent=t('AI ошибка: {error}',{error:e.message||'нет связи'})}
+ setTimeout(()=>{$('#ac_note').textContent=''},8000);
+});
 for(const b of document.querySelectorAll('.tab'))b.addEventListener('click',()=>{if(b.dataset.tab==='cfg')pullAutoChat()});
 pullAutoChat();
 

@@ -139,6 +139,7 @@ export type WebBot = {
 
   autoChatInfo?: () => unknown;
   setAutoChat?: (raw: unknown) => unknown;
+  testAiChat?: () => Promise<string>;
   chatMode?: () => "global" | "local";
   setChatMode?: (mode: unknown) => "global" | "local";
   checkUpdate?: () => Promise<string>;
@@ -648,6 +649,19 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
     if (url.pathname === "/api/autochat" && req.method !== "POST") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       res.end(JSON.stringify(bot.autoChatInfo?.() ?? null));
+      return;
+    }
+    if (url.pathname === "/api/autochat/test" && req.method === "POST") {
+      void (async () => {
+        try {
+          const answer = await bot.testAiChat?.();
+          res.writeHead(answer === undefined ? 400 : 200, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify(answer === undefined ? { error: "AI test unavailable" } : { answer }));
+        } catch (err) {
+          res.writeHead(502, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+        }
+      })();
       return;
     }
     if (url.pathname === "/api/diagnostics" && req.method === "GET") {
