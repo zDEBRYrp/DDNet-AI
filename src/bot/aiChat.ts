@@ -22,7 +22,19 @@ function clean(value: unknown, max: number, fallback: string): string {
 
 export function sanitizeAiChat(raw: unknown): AiChatSettings {
   const o = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  return { on: o.on === true, endpoint: clean(o.endpoint, 300, DEFAULT_ENDPOINT).replace(/\/+$/u, ""), provider: clean(o.provider, 100, DEFAULT_PROVIDER), model: clean(o.model, 100, DEFAULT_MODEL), systemPrompt: clean(o.systemPrompt, 1200, DEFAULT_PROMPT) };
+  const provider = clean(o.provider, 100, DEFAULT_PROVIDER);
+  const model = clean(o.model, 100, DEFAULT_MODEL);
+  // Migrate the old built-in pair as well as fresh settings.  Without this,
+  // an existing autochat.json would silently keep the provider that was
+  // observed to return empty completions.
+  const legacyOpenai = provider.toLowerCase() === "openaichat" && model.toLowerCase() === "gpt-4o-mini";
+  return {
+    on: o.on === true,
+    endpoint: clean(o.endpoint, 300, DEFAULT_ENDPOINT).replace(/\/+$/u, ""),
+    provider: legacyOpenai ? DEFAULT_PROVIDER : provider,
+    model: legacyOpenai ? DEFAULT_MODEL : model,
+    systemPrompt: clean(o.systemPrompt, 1200, DEFAULT_PROMPT),
+  };
 }
 
 function compact(text: string): string {
