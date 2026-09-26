@@ -3069,7 +3069,6 @@ export class DdnetBot {
       const d = vdistance(selfPos, tee.pos);
       if (d > TARGET_MAX_PX) continue;
       const interfering = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id || this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
-      if (!atWar && !this.duelNow() && this.afk(tee) && !tee.frozen && !interfering && d > BLOCKING_RANGE_PX) continue;
       let inWb = false;
       if (wb !== null && wbSide !== null) {
         const ttx = Math.trunc(tee.pos.x / 32);
@@ -3081,6 +3080,11 @@ export class DdnetBot {
         if (!roped && !atWar && (meInLeash ? !inWbLeash(wb, wbSide, ttx, tty) : !atUs)) continue;
         inWb = inWbZone(wb, wbSide, ttx, tty);
       }
+
+      // An AFK tee outside the game is not worth chasing, but an AFK tee
+      // standing in our own WB is still blocking the entrance and must be
+      // handled like any other obstruction.
+      if (!atWar && !this.duelNow() && this.afk(tee) && !tee.frozen && !interfering && d > BLOCKING_RANGE_PX && !inWb) continue;
 
       if (this.trapCare() && this.inDeadZone(tee.pos) && !this.inDeadZone(selfPos)) continue;
 
@@ -3641,10 +3645,7 @@ export class DdnetBot {
     if (!this.isFriendId(t.id) || this.world.notPlaying(t.id)) return false;
     if ((this.rescuePausedUntil.get(t.id) ?? -Infinity) > this.world.tick) return false;
     if (vdistance(self.pos, t.pos) > RESCUE_RANGE_PX) return false;
-    const wb = this.wbHolding();
-    const side = wb === null ? null : this.wbChooser.side;
-    if (wb !== null && side !== null && !inWbLeash(wb, side, Math.trunc(t.pos.x / 32), Math.trunc(t.pos.y / 32))) return false;
-    return true;
+      return true;
   }
 
   private rescueFriend(client: TwClient, self: TeeState, fighting = false): boolean {
