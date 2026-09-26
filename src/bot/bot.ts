@@ -2602,10 +2602,18 @@ export class DdnetBot {
           this.applyInput(client, this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 }), self.activeWeapon);
           return;
         }
-        const direct = this.frozenTargetAction(self, frozenTarget);
-        if (direct !== null) {
-          this.applyInput(client, direct, self.activeWeapon);
-          return;
+        // The planner has an explicit frozenThrow search which evaluates
+        // where the rope will leave the temporary freeze.  Do not bypass it
+        // in planner mode with a raw hook aimed at the body: that pulls a
+        // freshly frozen enemy toward us and was the source of many
+        // "grabbed, then pulled back out" loops.  Keep the direct action only
+        // for the legacy scripted fallback, which has no throw search.
+        if (!this.cfg.planner) {
+          const direct = this.frozenTargetAction(self, frozenTarget);
+          if (direct !== null) {
+            this.applyInput(client, direct, self.activeWeapon);
+            return;
+          }
         }
       }
 
