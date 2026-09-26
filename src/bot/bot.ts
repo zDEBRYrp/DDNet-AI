@@ -2068,12 +2068,19 @@ export class DdnetBot {
 
     this.lastTouch.delete(kill.victim_id);
     this.thawTickById.delete(kill.victim_id);
-    if (this.chargeTargetName !== undefined && kill.victim_id === this.targetId) {
+    const targetDied = kill.victim_id === this.targetId;
+    if (this.chargeTargetName !== undefined && targetDied) {
       const name = this.chargeTargetName;
       this.chargeTargetName = undefined;
       this.cfg.targetName = undefined;
       this.targetId = -1;
       this.emit("event", `charge finished: ${name} died after the freeze`);
+    } else if (targetDied) {
+      // Clear a war/target selection even when the bot itself delivered the
+      // last hit.  The killer branch below used to skip this reset, leaving
+      // the bot locked on a dead player or the spawn position.
+      this.targetId = -1;
+      this.emit("event", `target ${this.nameOfLive(kill.victim_id)} died; selecting a new target`);
     }
     if (this.ownId < 0) return;
 
@@ -2096,10 +2103,7 @@ export class DdnetBot {
     } else if (kill.killer_id === this.ownId) {
       this.stats.kills++;
       this.emote(EMOTICON_SPLATTEE);
-    } else if (kill.victim_id === this.targetId) {
-      // A dead target must never remain selected: otherwise the next tick can
-      // keep the bot staring at the spawn or at the old war slot.
-      this.targetId = -1;
+    } else if (targetDied) {
       this.emote(EMOTICON_QUESTION);
     }
   }
