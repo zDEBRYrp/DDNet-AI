@@ -2011,6 +2011,14 @@ export class DdnetBot {
     this.reconnectDelayMs = RECONNECT_MIN_MS;
     this.ownId = -1;
     this.targetId = -1;
+    this.pendingBlocks.clear();
+    this.rescueId = -1;
+    this.rescueHammerId = -1;
+    this.rescueHammerSince = -1;
+    this.rescuePullId = -1;
+    this.rescuePullSince = -1;
+    this.rescuePullAt = -Infinity;
+    this.rescuePausedUntil.clear();
     this.lastPos = null;
     this.wasAlive = false;
     this.wantSpectate = false;
