@@ -3833,7 +3833,17 @@ export class DdnetBot {
       }
     }
     if (inFreeze === undefined) this.rescuePullSince = -1;
-    const him = cands.find((t) => !this.inFreezeTiles(t.pos));
+    // A frozen teammate must not be abandoned just because the rope simulator
+    // could not find a valid line.  At close range a hammer hit is the direct
+    // rescue action; keep the same safety gate so we never hit through a
+    // dangerous freeze landing or into a nearby enemy.
+    const frozenHammer =
+      inFreeze !== undefined &&
+      vdistance(self.pos, inFreeze.pos) <= RESCUE_HAMMER_PX &&
+      this.rescueHitSafe(self, inFreeze)
+        ? inFreeze
+        : undefined;
+    const him = cands.find((t) => !this.inFreezeTiles(t.pos)) ?? frozenHammer;
     if (him === undefined) return false;
     const name = this.nameOfLive(him.id);
     const d = vdistance(self.pos, him.pos);
