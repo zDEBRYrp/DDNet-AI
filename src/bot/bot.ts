@@ -2114,9 +2114,11 @@ export class DdnetBot {
     }
     if (fromServer && PERMANENT_SERVER_REFUSAL.test(reason)) {
       this.emit("event", `automatic reconnect stopped: server refused this connection (${reason})`);
-      const waiter = this.startWaiter;
-      this.startWaiter = undefined;
-      waiter?.reject(new Error(`server refused this connection: ${reason}`));
+      // Keep the bot process and its HTTP/UI diagnostics alive.  Rejecting
+      // startWaiter here makes main.ts exit with code 1, after which the app
+      // supervisor restarts the whole child and hides the actual refusal.
+      // The explicit reconnect button still tears down and starts a fresh
+      // client when the user has changed the server/VPN/account settings.
       return;
     }
     this.scheduleReconnect();
