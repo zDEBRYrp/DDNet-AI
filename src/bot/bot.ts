@@ -3924,7 +3924,10 @@ export class DdnetBot {
       }
       return false;
     }
-    if (fighting && d > RESCUE_HAMMER_PX) return false;
+    // During a fight, still close the short gap to a frozen teammate after a
+    // failed rope simulation.  Do not extend this exception to non-frozen
+    // assistance: that would pull the bot away from its active opponent.
+    if (fighting && d > RESCUE_HAMMER_PX && !him.frozen) return false;
     const input: PlayerInput = { ...emptyInput(), targetX: him.pos.x - self.pos.x, targetY: him.pos.y - self.pos.y, fire: this.prevInput.fire, wantedWeapon: WEAPON_HAMMER + 1 };
     if (d <= RESCUE_HAMMER_PX && this.rescueHitSafe(self, him)) {
       if (this.rescueHammerId !== him.id || this.rescueHammerSince < 0) {
@@ -3944,7 +3947,7 @@ export class DdnetBot {
         this.emit("event", `hammering friend ${name} out of the freeze`);
       }
     } else {
-      if (fighting) return false;
+      if (fighting && !him.frozen) return false;
       if (d > RESCUE_HAMMER_PX && Math.abs(him.pos.x - self.pos.x) > 8) input.direction = him.pos.x > self.pos.x ? 1 : -1;
 
       if (input.fire & 1) input.fire++;
