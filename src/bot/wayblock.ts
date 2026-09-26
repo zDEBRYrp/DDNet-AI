@@ -238,7 +238,9 @@ export class WbSideChooser {
   update(counts: { left: number; right: number }, here: WbSide | null, tick: number, nearer: WbSide): WbSide {
     if (this.provisional && (here === this.side || tick < this.pickedAt || tick - this.pickedAt >= WB_PROVISIONAL_TICKS)) this.provisional = false;
     if (this.side === null || (this.provisional && counts.left + counts.right > 0)) {
-      this.side = counts.left < counts.right ? "left" : counts.right < counts.left ? "right" : (here ?? nearer);
+      // Auto WB is intentionally random: both entrances are valid and the
+      // bot must not keep drifting to the same side because of stale counts.
+      this.side = Math.random() < 0.5 ? "left" : "right";
       this.provisional = counts.left + counts.right === 0;
       this.pickedAt = tick;
       this.pendingSince = -1;

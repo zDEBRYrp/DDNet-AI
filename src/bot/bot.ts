@@ -2958,17 +2958,20 @@ export class DdnetBot {
   }
 
   private frozenTargetAction(self: TeeState, target: TeeState): PlayerInput | null {
+    // A frozen enemy is not a hook target.  The planner handles positioning;
+    // repeatedly re-hooking it only pulls it back out of the freeze.
+    if (target.frozen) return null;
     const d = vdistance(self.pos, target.pos);
     if (!this.frozenTargetIsActionable(self, target, d)) return null;
     const dx = target.pos.x - self.pos.x;
     const dy = target.pos.y - self.pos.y;
-    if (d <= TUNING.hookLength && target.hookedPlayer !== self.id && (self.hookState === HOOK_IDLE || self.hookState === HOOK_FLYING)) {
+    if (d <= TUNING.hookLength && this.lineIsClear(self.pos, target.pos) && target.hookedPlayer !== self.id && (self.hookState === HOOK_IDLE || self.hookState === HOOK_FLYING)) {
       return { ...emptyInput(), targetX: dx, targetY: dy, hook: 1, wantedWeapon: WEAPON_HAMMER + 1 };
     }
     if (self.hookedPlayer === target.id) {
       return this.guard(self, { ...this.prevInput, targetX: dx, targetY: dy, hook: 1, wantedWeapon: WEAPON_HAMMER + 1 });
     }
-    if (d > TUNING.hookLength && d <= BLOCKING_RANGE_PX) {
+    if (d > TUNING.hookLength && d <= BLOCKING_RANGE_PX && this.lineIsClear(self.pos, target.pos)) {
       return { ...emptyInput(), direction: dx < 0 ? -1 : 1, jump: dy < -32 ? 1 : 0, targetX: dx, targetY: dy, wantedWeapon: WEAPON_HAMMER + 1 };
     }
     return null;
@@ -4554,6 +4557,9 @@ export class DdnetBot {
     planner.setBand(this.wbBand(self));
     planner.setLiveTick(this.world.tick);
     let out = planner.decide(sim, ownId, targetId, this.prevInput, enemyInput);
+
+    if (target.frozen && !this.isFriendId(target.id)) out = { ...out, hook: 0, fire: 0 };
+    else if (out.hook !== 0 && !this.lineIsClear(self.pos, target.pos)) out = { ...out, hook: 0 };
 
     if (out.hook !== 0 && (spare.length > 0 || self.hookedPlayer >= 0)) {
 
