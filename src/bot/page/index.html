@@ -62,6 +62,7 @@
     <button type="button" data-wb="auto" title="Сторону выбирает сам и держит её">авто</button>
     <button type="button" data-wb="left" title="Держать левый проход">слева</button>
     <button type="button" data-wb="right" title="Держать правый проход">справа</button>
+    <button type="button" data-wb="both" title="Два бота: один держит левый проход, второй правый">2 ВБ</button>
    </div>
   </div>
   <div class="ctl-row"><span class="lbl">Режим</span>
@@ -85,13 +86,8 @@
   </div>
   <div class="ctl-row ctl-low"><label class="check" title="Короче расчёт и новый план раз в два снимка: играет слабее, но успевает за сервером на слабом ПК (!low on / !low off). Сам не включается"><input type="checkbox" id="lowcpu"> Режим для слабого ПК</label></div>
   <div class="ctl-dummy" id="dummyrow" hidden>
-   <div class="ctl-row"><span class="lbl">Второй бот</span><span class="chip" id="dummychip"></span><span class="tgt" id="dummytext"></span></div>
-   <div class="seg" id="dummyseg">
-    <button type="button" data-dcmd="wb left" title="Второй бот держит левый ВБ">ВБ слева</button>
-    <button type="button" data-dcmd="wb right" title="Второй бот держит правый ВБ">ВБ справа</button>
-    <button type="button" data-dcmd="stop" title="Второй бот стоит">стоять</button>
-    <button type="button" data-dcmd="go" title="Второй бот играет">играть</button>
-   </div>
+   <div class="ctl-row"><span class="lbl">Управлять</span><select id="control-target"><option value="main">основной бот</option><option value="dummy">второй бот</option></select><button class="ghost mini" id="dummy-reset" type="button" title="Убить и возродить второй бот">Reset 2</button></div>
+   <div class="hint" id="dummytext"></div>
   </div>
   <div class="ctl-reply" id="reply" hidden></div>
  </div>
@@ -184,7 +180,7 @@
  <input type="text" id="ac_men_text" maxlength="200" placeholder="например: {name}, я бот, вызывай на дуэль">
  <div class="ac-row"><label class="check"><input type="checkbox" id="ac_ai_on"> AI-ответы через g4f</label></div>
  <textarea id="ac_ai_prompt" rows="3" maxlength="1200" placeholder="Системный промпт AI"></textarea>
- <div class="fields"><label>g4f endpoint<input type="text" id="ac_ai_endpoint" placeholder="http://127.0.0.1:1337/v1"></label><label>Модель<input type="text" id="ac_ai_model" placeholder="gpt-4o-mini"></label></div>
+ <div class="fields"><label>g4f endpoint<input type="text" id="ac_ai_endpoint" placeholder="http://127.0.0.1:1337/v1"></label><label>Провайдер<input type="text" id="ac_ai_provider" placeholder="OpenaiChat"></label><label>Модель<input type="text" id="ac_ai_model" placeholder="gpt-4o-mini"></label></div>
  <div class="ac-row"><span class="ac-title">Ответ на слово в чате</span><button class="ghost mini" id="ac_add" type="button">+ правило</button></div>
  <div class="ac-rules" id="ac_rules"></div>
  <div class="bar"><button id="ac_save" type="button">Сохранить</button><span class="k" id="ac_note" style="margin:0"></span></div>

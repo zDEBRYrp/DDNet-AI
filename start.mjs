@@ -363,6 +363,7 @@ ${line(56)}
       lang: getLang(),
     });
     bot.setTeammate(dummyName);
+    const pairMainLeft = Math.random() < 0.5;
 
     const partnerOf = (d) => (d.phase === "online" && d.selfId >= 0 ? d.selfId : -1);
     dummy.onStatus((d) => bot.setPartnerId(partnerOf(d)));
@@ -389,7 +390,14 @@ ${line(56)}
     const ownDuels = bot.duelList.bind(bot);
     bot.duelList = () => bothBotsDuels(ownDuels(), name, readDuelFile(path.join(dir, "duels.json")), dummyName);
     const own = bot.handleConsole.bind(bot);
-    bot.handleConsole = (lineIn) => {
+    bot.handleConsole = async (lineIn) => {
+
+      if (/^\s*[!?]wb\s+both\s*$/i.test(lineIn)) {
+        const mainSide = pairMainLeft ? "left" : "right";
+        const dummySide = pairMainLeft ? "right" : "left";
+        const mainReply = own(`!wb ${mainSide}`);
+        return dummy.handleConsole(`!wb ${dummySide}`).then((r) => `${mainReply}; ${dummyName}: ${r}`);
+      }
 
       if (/^\s*[!?]lang\b/i.test(lineIn)) {
         const reply = own(lineIn);
@@ -407,6 +415,14 @@ ${line(56)}
       if (m === null) return own(lineIn);
       const rest = (m[1] ?? "").trim();
       if (rest === "") return `${dummyName}: !d <command>, e.g. !d wb left, !d stop, !d where`;
+
+      if (/^!?(?:wb)\s+both$/i.test(rest)) {
+        const mainSide = pairMainLeft ? "left" : "right";
+        const dummySide = pairMainLeft ? "right" : "left";
+        const mainReply = own(`!wb ${mainSide}`);
+        const dummyReply = await dummy.handleConsole(`!wb ${dummySide}`);
+        return `${mainReply}; ${dummyName}: ${dummyReply}`;
+      }
 
       return dummy.handleConsole(rest.startsWith("!") || rest.startsWith("?") ? rest : `!${rest}`).then((r) => `${dummyName}: ${r}`);
     };

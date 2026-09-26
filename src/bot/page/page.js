@@ -78,9 +78,11 @@ function iconSvg(name){return '<svg class="ic" viewBox="0 0 16 16" aria-hidden="
 for(const i of document.querySelectorAll('i[data-ic]'))i.outerHTML=iconSvg(i.dataset.ic);
 
 let replyTimer=0;
+let controlTarget='main';
 async function botCmd(v,show){
  let reply='';
- try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:v})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
+ const line=controlTarget==='dummy'&&!/^!wb\s+both\b/i.test(v)?'!d '+v: v;
+ try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
  if(show&&reply){const box=$('#reply');box.textContent=tr(reply.split('\n')[0]);box.hidden=false;clearTimeout(replyTimer);replyTimer=setTimeout(()=>{box.hidden=true},5000)}
  tick();
  return reply;
@@ -90,7 +92,8 @@ $('#emo').addEventListener('change',()=>{const v=$('#emo').value;if(v)botCmd('!e
 let panel=null,doingText='';
 const MODE_CMD={fight:'!go',passive:'!mode passive',hold:'!stop'};
 for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.addEventListener('click',()=>void botCmd(MODE_CMD[b.dataset.mode],true));
-for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.addEventListener('click',()=>void botCmd('!wb '+b.dataset.wb,true));
+let pairWb=false;
+for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.addEventListener('click',()=>{pairWb=b.dataset.wb==='both';void botCmd('!wb '+b.dataset.wb,true)});
 for(const b of document.querySelectorAll('#styleseg [data-style]'))b.addEventListener('click',()=>void botCmd('!style '+b.dataset.style,true));
 $('#tgtclear').addEventListener('click',()=>void botCmd('!target -',true));
 $('#walkstop').addEventListener('click',()=>void botCmd('!stop',true));
@@ -99,6 +102,8 @@ $('#aspec').addEventListener('click',()=>void botCmd(panel&&panel.spectating?'!j
 $('#ahome').addEventListener('click',()=>void botCmd(panel&&panel.home?'!home off':'!home',true));
 
 $('#lowcpu').addEventListener('change',()=>void botCmd($('#lowcpu').checked?'!low on':'!low off',true));
+$('#control-target').addEventListener('change',(e)=>{controlTarget=e.target.value==='dummy'?'dummy':'main'});
+$('#dummy-reset').addEventListener('click',()=>{controlTarget='dummy';void botCmd('!reset',true)});
 function renderPanel(s){
  panel=s.panel||null;
  $('#lowcpu').checked=s.lowCpu===true;
@@ -115,6 +120,7 @@ function renderPanel(s){
   $('#dummychip').textContent=!on?t('не в игре'):d.frozen?t('во фризе'):d.acting?t('свободен'):t('стоит');
   $('#dummychip').className='chip '+(!on?'off':d.frozen?'frozen':'free');
   $('#dummytext').textContent=d.name+(d.wb?' · '+(d.wb==='WB left'?t('держит ВБ слева'):t('держит ВБ справа')):'')+(d.target?' · '+t('цель: {name}',{name:d.target}):'');
+  $('#control-target').disabled=!on;
  }
  const mode=s.acting?s.mode:'hold';
  for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.classList.toggle('on',b.dataset.mode===mode);
@@ -127,7 +133,7 @@ function renderPanel(s){
  const duelBtn=document.querySelector('#styleseg [data-style=duel]');
  duelBtn.classList.toggle('auto',!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
  $('#wbrow').hidden=style!=='wb';
- for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb===wb);
+ for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb==='both'?pairWb:b.dataset.wb===wb);
  const pin=panel&&panel.pinnedTarget;
  $('#tgt').textContent=pin?t('только {name}',{name:pin}):t('сам выбирает');
  $('#tgt').classList.toggle('pinned',!!pin);
@@ -892,7 +898,7 @@ function acFill(c){
  if(!c)return;
  $('#ac_per_on').checked=!!c.periodic.on;$('#ac_per_sec').value=String(c.periodic.everySec);$('#ac_per_text').value=c.periodic.text||'';
  $('#ac_men_on').checked=!!c.mention.on;$('#ac_men_text').value=c.mention.reply||'';
- $('#ac_ai_on').checked=!!c.ai?.on;$('#ac_ai_prompt').value=c.ai?.systemPrompt||'';$('#ac_ai_endpoint').value=c.ai?.endpoint||'';$('#ac_ai_model').value=c.ai?.model||'';
+ $('#ac_ai_on').checked=!!c.ai?.on;$('#ac_ai_prompt').value=c.ai?.systemPrompt||'';$('#ac_ai_endpoint').value=c.ai?.endpoint||'';$('#ac_ai_provider').value=c.ai?.provider||'';$('#ac_ai_model').value=c.ai?.model||'';
  $('#chat-ai').className='ghost'+(c.ai?.on?' on':'');
  $('#ac_rules').textContent='';for(const r of c.keywords||[])acRule(r);
  if(!(c.keywords||[]).length)acRule({on:true,match:'',reply:''});
@@ -902,7 +908,7 @@ $('#ac_add').addEventListener('click',()=>acRule({on:true,match:'',reply:''}));
 $('#ac_save').addEventListener('click',async()=>{
  const body={periodic:{on:$('#ac_per_on').checked,everySec:Number($('#ac_per_sec').value),text:$('#ac_per_text').value},
   mention:{on:$('#ac_men_on').checked,reply:$('#ac_men_text').value},
-  ai:{on:$('#ac_ai_on').checked,systemPrompt:$('#ac_ai_prompt').value,endpoint:$('#ac_ai_endpoint').value,model:$('#ac_ai_model').value},
+  ai:{on:$('#ac_ai_on').checked,systemPrompt:$('#ac_ai_prompt').value,endpoint:$('#ac_ai_endpoint').value,provider:$('#ac_ai_provider').value,model:$('#ac_ai_model').value},
   keywords:[...document.querySelectorAll('#ac_rules .ac-rule')].map((r)=>({on:r.querySelector('.ac-on').checked,match:r.querySelector('.ac-match').value,reply:r.querySelector('.ac-reply').value}))};
  try{const r=await fetch('/api/autochat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const c=await r.json();
   if(r.ok&&c){acFill(c);$('#ac_note').textContent=t('сохранено')}else $('#ac_note').textContent=t('не сохранилось')}
