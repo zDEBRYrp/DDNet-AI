@@ -35,6 +35,7 @@ $("#titlebar").addEventListener("dblclick", (e) => {
   if (e.target.closest("button")) return;
   api.window.toggleMaximize();
 });
+$("#b-dummy").addEventListener("click", () => api.bot.toggleDummy());
 $("#b-pause").addEventListener("click", () => api.bot.togglePause());
 $("#b-reset").addEventListener("click", () => api.bot.reset());
 $("#b-disconnect").addEventListener("click", () => api.bot.disconnect());
@@ -67,6 +68,14 @@ function render(s) {
   $("#pill").title = text;
 
   const running = s.botState === "running";
+  const dummy = s.dummy || null;
+  const dummyOn = dummy && (dummy.phase === "online" || dummy.phase === "connecting");
+  const dummyButton = $("#b-dummy");
+  dummyButton.classList.toggle("on", Boolean(dummyOn));
+  dummyButton.classList.toggle("critical", Boolean(dummy && dummy.phase === "offline" && dummy.error));
+  dummyButton.querySelector(".lbl").textContent = dummyOn ? "Dummy ✓" : "Dummy";
+  dummyButton.title = dummyOn ? "Отключить второй бот" : dummy && dummy.error ? `Ошибка dummy: ${dummy.error}` : "Подключить второй бот";
+  dummyButton.disabled = !running;
   const pause = $("#b-pause");
   pause.disabled = !running;
   pause.classList.toggle("paused", s.paused);

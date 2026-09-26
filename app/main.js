@@ -206,6 +206,7 @@ function main() {
       server: st ? st.server : "",
       name: st ? st.name : "",
       target: st ? st.targetName : null,
+      dummy: st ? st.dummy ?? null : null,
       brain: st ? st.brain : "",
       mode: st ? st.mode : "",
       offlineReason: st ? st.offlineReason : "",
@@ -527,7 +528,7 @@ function main() {
   }
 
   const summary = (s) =>
-    s === null ? null : [s.phase, s.mode, s.acting, s.server, s.name, s.targetName, s.brain, s.offlineReason];
+    s === null ? null : [s.phase, s.mode, s.acting, s.server, s.name, s.targetName, s.brain, s.offlineReason, s.dummy?.phase, s.dummy?.error, s.dummy?.selfId];
 
   function stopPolling() {
     if (pollTimer !== null) clearInterval(pollTimer);
@@ -560,6 +561,26 @@ function main() {
     } catch (err) {
       toast(t("Не вышло: {err}", { err: tr(err.message) }), "error");
       return { ok: false };
+    }
+  }
+
+  async function toggleDummy() {
+    if (bot === null || bot.state !== "running") {
+      toast(t("Бот ещё не запущен"), "warn");
+      return { ok: false };
+    }
+    try {
+      const current = lastStatus?.dummy;
+      const on = current?.phase === "online" || current?.phase === "connecting";
+      const s = root === null ? null : settingsLib.readSettings(root);
+      const result = await request(bot.port, "POST", "/api/launch", { dummy: on ? "off" : "on", dummyName: s?.dummyName || "" });
+      addLog("app", result?.reply || (on ? "dummy отключается" : "dummy подключается"));
+      return { ok: true, reply: result?.reply || "" };
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      addLog("app", `dummy: ${text}`);
+      toast(t("Не вышло: {err}", { err: tr(text) }), "error");
+      return { ok: false, error: text };
     }
   }
 
@@ -1023,6 +1044,7 @@ function main() {
     handle("win:close", () => win.close());
     handle("win:setMini", (on) => setMini(on === true));
     handle("win:setOnTop", (on) => setOnTop(on === true));
+    handle("bot:toggleDummy", () => toggleDummy());
     handle("bot:togglePause", () => togglePause());
     handle("bot:restart", () => restartBot());
     handle("bot:reset", () => resetBot());

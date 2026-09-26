@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("ddnet", {
     setOnTop: (on) => invoke("win:setOnTop", on === true),
   },
   bot: {
+    toggleDummy: () => invoke("bot:toggleDummy"),
     togglePause: () => invoke("bot:togglePause"),
     restart: () => invoke("bot:restart"),
     reset: () => invoke("bot:reset"),
