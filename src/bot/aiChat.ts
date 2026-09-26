@@ -67,7 +67,7 @@ function contentOf(value: unknown): string {
 
 async function requestCompletion(cfg: AiChatSettings, provider: string, model: string, name: string, message: string): Promise<AiChatResult> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 18_000);
+  const timer = setTimeout(() => controller.abort(), 10_000);
   try {
     const res = await fetch(`${cfg.endpoint}/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, provider, temperature: 0.7, max_tokens: 80, messages: [{ role: "system", content: cfg.systemPrompt }, { role: "user", content: `${name} написал: ${message}` }] }), signal: controller.signal });
     if (!res.ok) {
@@ -81,6 +81,11 @@ async function requestCompletion(cfg: AiChatSettings, provider: string, model: s
     const answer = compact(contentOf(raw));
     if (answer === "") throw new Error(`g4f ${provider}/${model} вернул пустой ответ`);
     return { text: answer, provider, model };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`g4f ${provider}/${model}: таймаут ответа (10 с)`);
+    }
+    throw err;
   } finally { clearTimeout(timer); }
 }
 

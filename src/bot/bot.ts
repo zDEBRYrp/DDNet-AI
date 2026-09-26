@@ -934,7 +934,7 @@ export class DdnetBot {
       const result = await askG4fDetailed(cfg, this.cfg.name, "Проверка связи. Ответь двумя словами.");
       this.aiStatus = { state: "ok", provider: result.provider, model: result.model, at: new Date().toISOString(), answer: result.text, error: null };
       this.emit("event", `AI чат тест: ${result.provider}/${result.model} -> ${result.text}`);
-      return answer;
+      return result.text;
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       this.aiStatus = { state: "error", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: error.slice(0, 1000) };
