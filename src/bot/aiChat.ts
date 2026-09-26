@@ -6,6 +6,8 @@ export type AiChatSettings = {
   systemPrompt: string;
 };
 
+export type AiChatResult = { text: string; provider: string; model: string };
+
 const DEFAULT_ENDPOINT = "http://127.0.0.1:1337/v1";
 // Keep the default on a provider/model pair that was verified against the
 // bundled local G4F server.  Gemini/OpenaiChat may be listed by /v1/models but
@@ -56,7 +58,7 @@ function contentOf(value: unknown): string {
     .join(" ");
 }
 
-async function requestCompletion(cfg: AiChatSettings, provider: string, model: string, name: string, message: string): Promise<string> {
+async function requestCompletion(cfg: AiChatSettings, provider: string, model: string, name: string, message: string): Promise<AiChatResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 18_000);
   try {
@@ -71,14 +73,14 @@ async function requestCompletion(cfg: AiChatSettings, provider: string, model: s
     const raw = choice?.message?.content ?? choice?.text ?? "";
     const answer = compact(contentOf(raw));
     if (answer === "") throw new Error(`g4f ${provider}/${model} вернул пустой ответ`);
-    return answer;
+    return { text: answer, provider, model };
   } finally { clearTimeout(timer); }
 }
 
-export async function askG4f(settings: AiChatSettings, name: string, message: string): Promise<string> {
+export async function askG4fDetailed(settings: AiChatSettings, name: string, message: string): Promise<AiChatResult> {
   const cfg = sanitizeAiChat(settings);
   try {
-    return await requestCompletion(cfg, cfg.provider, cfg.model, name, message);
+      return await requestCompletion(cfg, cfg.provider, cfg.model, name, message);
   } catch (first) {
     const fallbackSame = cfg.provider.toLowerCase() === DEFAULT_PROVIDER.toLowerCase() && cfg.model.toLowerCase() === DEFAULT_MODEL.toLowerCase();
     if (fallbackSame) throw first;
@@ -93,4 +95,8 @@ export async function askG4f(settings: AiChatSettings, name: string, message: st
       throw new Error(`${firstText}; fallback ${DEFAULT_PROVIDER}/${DEFAULT_MODEL}: ${fallbackText}`);
     }
   }
+}
+
+export async function askG4f(settings: AiChatSettings, name: string, message: string): Promise<string> {
+  return (await askG4fDetailed(settings, name, message)).text;
 }

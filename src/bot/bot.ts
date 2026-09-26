@@ -72,7 +72,7 @@ import { installNetworkGuard, patchHuffman, patchRedirect, patchSnapshotDecoder 
 import type { NetGuard } from "./netPatch.ts";
 import { AutoChat } from "./autoChat.ts";
 import type { AutoChatConfig } from "./autoChat.ts";
-import { askG4f } from "./aiChat.ts";
+import { askG4fDetailed } from "./aiChat.ts";
 import type { MapClientLike, RawSnapItem, SnapshotSource } from "./liveWorld.ts";
 
 const require = createRequire(import.meta.url);
@@ -923,9 +923,9 @@ export class DdnetBot {
     const cfg = this.autoChat.config().ai;
     this.aiStatus = { state: "requesting", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: null };
     try {
-      const answer = await askG4f(cfg, this.cfg.name, "Проверка связи. Ответь двумя словами.");
-      this.aiStatus = { state: "ok", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer, error: null };
-      this.emit("event", `AI чат тест: ${cfg.provider}/${cfg.model} -> ${answer}`);
+      const result = await askG4fDetailed(cfg, this.cfg.name, "Проверка связи. Ответь двумя словами.");
+      this.aiStatus = { state: "ok", provider: result.provider, model: result.model, at: new Date().toISOString(), answer: result.text, error: null };
+      this.emit("event", `AI чат тест: ${result.provider}/${result.model} -> ${result.text}`);
       return answer;
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
@@ -2254,10 +2254,10 @@ export class DdnetBot {
       const cfg = this.autoChat.config().ai;
       this.aiStatus = { state: "requesting", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: null };
       this.emit("event", `AI чат: запрос от ${who} (${cfg.provider}/${cfg.model})`);
-      const answer = await askG4f(cfg, who, message);
+      const result = await askG4fDetailed(cfg, who, message);
       this.aiLastReplyMs = Date.now();
-      this.aiStatus = { state: "ok", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer, error: null };
-      const line = `${who}: ${answer}`;
+      this.aiStatus = { state: "ok", provider: result.provider, model: result.model, at: new Date().toISOString(), answer: result.text, error: null };
+      const line = `${who}: ${result.text}`;
       const sent = this.autoSay(line);
       this.emit("event", `AI чат: ответ ${line}${sent ? " (отправлен)" : " (ожидает отправки)"}`);
     } catch (err) {
