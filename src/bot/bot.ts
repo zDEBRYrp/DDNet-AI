@@ -3280,17 +3280,23 @@ export class DdnetBot {
       const interfering = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id || this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
       const threatening = this.world.tick - tee.attackTick < AGGRESSOR_MEMORY_TICKS && d < AGGRESSOR_RANGE_PX;
       let inWb = false;
+      let wbThreat = false;
       if (wb !== null && wbSide !== null) {
         const ttx = Math.trunc(tee.pos.x / 32);
         const tty = Math.trunc(tee.pos.y / 32);
         const roped = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id;
 
         const atUs = this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
+        // The leash protects the bot from chasing players across the map, but
+        // its hard edge is not a blind spot: somebody standing right outside
+        // the entrance can still hook or body-block the WB.  Keep this radius
+        // small and local so ordinary distant players remain ignored.
+        wbThreat = meInLeash && !inWbLeash(wb, wbSide, ttx, tty) && d <= BLOCKING_RANGE_PX && !tee.frozen;
 
         // A nearby player who has just attacked us is a real WB threat even
         // when he is standing outside the entrance leash.  The old filter
         // discarded him before the aggressor score could see him.
-        if (!freshFrozen && !roped && !atWar && !interfering && !threatening && (meInLeash ? !inWbLeash(wb, wbSide, ttx, tty) : !atUs)) continue;
+        if (!freshFrozen && !wbThreat && !roped && !atWar && !interfering && !threatening && (meInLeash ? !inWbLeash(wb, wbSide, ttx, tty) : !atUs)) continue;
         inWb = inWbZone(wb, wbSide, ttx, tty);
       }
 
@@ -3332,6 +3338,7 @@ export class DdnetBot {
 
       if (wbFinish && WB_THAW_URGENCY > 0) score += WB_THAW_URGENCY * (1 - Math.min(1, tee.freezeTicksLeft / 150));
       if (threatening) score += 500;
+      if (wbThreat) score += 650;
       if (this.world.tick - (this.atFriendById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS) score += AT_FRIEND_SCORE;
       const prev = this.lastSeenDist.get(tee.id);
       if (prev !== undefined && d < prev - 1) score += 200;
