@@ -3873,6 +3873,28 @@ export class DdnetBot {
         return true;
       }
     }
+    // A teammate can be frozen in the approach or in the air before landing
+    // on a freeze tile.  Treat that as a rope rescue too; the old path only
+    // simulated pulls for teammates already standing on freeze and then
+    // refused to approach them while fighting.
+    const looseFrozen = cands.find((t) => t.frozen && !this.inFreezeTiles(t.pos));
+    if (looseFrozen !== undefined && (!this.lowCpu || this.stats.ticks % 3 === 0)) {
+      const pull = this.pullLine(self, looseFrozen);
+      const safe = pull === null ? null : this.guard(self, pull);
+      if (pull !== null && safe === pull) {
+        if (this.rescuePullId !== looseFrozen.id || this.rescuePullSince < 0 || this.world.tick - this.rescuePullAt > 25) {
+          this.rescuePullId = looseFrozen.id;
+          this.rescuePullSince = this.world.tick;
+        }
+        this.rescuePullAt = this.world.tick;
+        if (this.world.tick - this.rescueSaidTick > 5 * 50) {
+          this.rescueSaidTick = this.world.tick;
+          this.emit("event", `pulling frozen friend ${this.nameOfLive(looseFrozen.id)} toward safety with the rope`);
+        }
+        this.applyInput(client, safe, self.activeWeapon);
+        return true;
+      }
+    }
     if (inFreeze === undefined) this.rescuePullSince = -1;
     // A frozen teammate must not be abandoned just because the rope simulator
     // could not find a valid line.  At close range a hammer hit is the direct
