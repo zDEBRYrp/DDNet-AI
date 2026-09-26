@@ -148,7 +148,10 @@ function renderPanel(s){
   // configured for fight/passive/goto.
   const selectedMode=selectedDummy?(d.mode||'hold'):(s.mode||'hold');
   const selectedWbMode=selectedDummy?(d.wbMode??null):(panel?panel.wbMode:null);
-  const selectedTarget=selectedDummy?d.target:(panel&&panel.pinnedTarget);
+  // A dummy can have a live target and a separately pinned target.  The
+  // latter is the control state the user selected, so do not hide it behind
+  // the worker's transient target name.
+  const selectedTarget=selectedDummy?(d.pinnedTarget||d.target):(panel&&panel.pinnedTarget);
   const selectedHome=selectedDummy?!!d.home:!!(panel&&panel.home);
   const selectedDuel=selectedDummy?!!d.inDuel:!!(panel&&panel.inDuel);
   const mode=selectedMode;
