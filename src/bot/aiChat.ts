@@ -7,11 +7,11 @@ export type AiChatSettings = {
 };
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:1337/v1";
-// OpenaiChat frequently returns an empty completion in the bundled free G4F
-// server. Gemini currently returns a real text completion through the same
-// OpenAI-compatible endpoint, so use it for a fresh/default configuration.
-const DEFAULT_PROVIDER = "Gemini";
-const DEFAULT_MODEL = "gemini-2.0-flash";
+// Keep the default on a provider/model pair that was verified against the
+// bundled local G4F server.  Gemini/OpenaiChat may be listed by /v1/models but
+// can currently return 429 or an empty completion without an API key.
+const DEFAULT_PROVIDER = "Cloudflare";
+const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
 const DEFAULT_PROMPT = "Отвечай по-русски, дружелюбно и очень кратко. Ответ должен быть ровно 5–9 простых слов, без кавычек, пояснений и префикса имени.";
 
 export const AI_CHAT_DEFAULTS: AiChatSettings = { on: false, endpoint: DEFAULT_ENDPOINT, provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL, systemPrompt: DEFAULT_PROMPT };
@@ -24,15 +24,17 @@ export function sanitizeAiChat(raw: unknown): AiChatSettings {
   const o = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const provider = clean(o.provider, 100, DEFAULT_PROVIDER);
   const model = clean(o.model, 100, DEFAULT_MODEL);
-  // Migrate the old built-in pair as well as fresh settings.  Without this,
-  // an existing autochat.json would silently keep the provider that was
-  // observed to return empty completions.
-  const legacyOpenai = provider.toLowerCase() === "openaichat" && model.toLowerCase() === "gpt-4o-mini";
+  // Migrate the old built-in pairs as well as fresh settings.  Without this,
+  // an existing autochat.json would silently keep a provider that is listed
+  // by G4F but currently returns 429/empty completions.
+  const oldDefault =
+    (provider.toLowerCase() === "openaichat" && model.toLowerCase() === "gpt-4o-mini") ||
+    (provider.toLowerCase() === "gemini" && model.toLowerCase() === "gemini-2.0-flash");
   return {
     on: o.on === true,
     endpoint: clean(o.endpoint, 300, DEFAULT_ENDPOINT).replace(/\/+$/u, ""),
-    provider: legacyOpenai ? DEFAULT_PROVIDER : provider,
-    model: legacyOpenai ? DEFAULT_MODEL : model,
+    provider: oldDefault ? DEFAULT_PROVIDER : provider,
+    model: oldDefault ? DEFAULT_MODEL : model,
     systemPrompt: clean(o.systemPrompt, 1200, DEFAULT_PROMPT),
   };
 }
