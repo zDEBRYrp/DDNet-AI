@@ -3125,9 +3125,13 @@ export class DdnetBot {
     if (this.inFreezeTiles(tee.pos)) return false;
     if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
     const frozenFor = this.world.tick - (this.frozenSinceById.get(tee.id) ?? this.world.tick);
-    // Give the planner a short, explicit finishing window for a fresh enemy
-    // freeze near the hazard.  Once it has settled, drop it and resume the WB.
-    return frozenFor <= FROZEN_FINISH_TICKS && d <= BLOCKING_RANGE_PX && this.nearFreeze(tee.pos);
+    // Give the planner a short, explicit finishing window for every fresh
+    // enemy freeze.  The body can still be in the air or in the approach to
+    // the hazard, so requiring `nearFreeze` here made the bot abandon exactly
+    // the cases where a second pull was needed to finish the block.  The
+    // planner's frozen-throw simulation decides whether a safe route to the
+    // freeze exists; once the body settles, the target is dropped as before.
+    return frozenFor <= FROZEN_FINISH_TICKS && d <= BLOCKING_RANGE_PX;
   }
 
   private bodyPushCanConnect(self: TeeState, tee: TeeState): boolean {
