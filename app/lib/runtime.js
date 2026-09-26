@@ -75,11 +75,12 @@ function pickNode(candidates, probe, minMajor = 24) {
   return { kind: "embedded", path: null, version: null, tooOld };
 }
 
-function botArgs({ port, offline = false, extra = [] }) {
+function botArgs({ port, offline = false, autoUpdate = true, extra = [] }) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("bad port");
   const args = ["start.mjs", "--no-open", "--no-console", "--ready-line", "--web-port", String(port)];
 
   if (offline) args.push("--server", "127.0.0.1:1", "--no-update");
+  else if (!autoUpdate) args.push("--no-update");
   for (const e of extra) if (typeof e === "string") args.push(e);
   return args;
 }
@@ -100,7 +101,7 @@ function parseControlLine(line) {
   m = /^WEBUI_FAIL (.*)$/.exec(t);
   if (m !== null) return { kind: "fail", reason: m[1] };
 
-  m = /^UPDATE_APPLIED ([0-9a-f]{7,40})$/.exec(t) ?? /(?:обновлено до|updated to) ([0-9a-f]{7,40})/.exec(t);
+  m = /^UPDATE_APPLIED ([0-9a-f]{7,40})$/.exec(t) ?? /^(?:обновление: обновлено до|update: updated to) ([0-9a-f]{7,40}), (?:перезапускаюсь|restarting)$/.exec(t);
   if (m !== null) return { kind: "updated", sha: m[1] };
   return null;
 }

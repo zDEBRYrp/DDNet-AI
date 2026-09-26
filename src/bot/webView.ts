@@ -2100,9 +2100,6 @@ export function createView(cv: HTMLCanvasElement, opt: ViewOptions) {
     },
     spec: (): number => st.spec,
     pick,
-    worldAt(sx: number, sy: number): { x: number; y: number } {
-      return toWorld(sx, sy);
-    },
     pan,
     fit,
     teeIcon,

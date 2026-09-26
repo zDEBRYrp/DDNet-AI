@@ -31,6 +31,23 @@ const { writeZip } = require("./lib/zip.js");
 const I18N = require("./ui/i18n.js");
 
 const APP_DIR = __dirname;
+
+function appCodeStamp() {
+  const files = [path.join(APP_DIR, "main.js"), path.join(APP_DIR, "preload.js")];
+  try {
+    for (const f of fs.readdirSync(path.join(APP_DIR, "lib"))) if (f.endsWith(".js")) files.push(path.join(APP_DIR, "lib", f));
+  } catch {
+
+  }
+  return files.map((f) => {
+    try {
+      return `${f}:${fs.readFileSync(f).length}:${require("node:crypto").createHash("sha1").update(fs.readFileSync(f)).digest("hex")}`;
+    } catch {
+      return `${f}:-`;
+    }
+  }).join("|");
+}
+const APP_CODE_AT_START = appCodeStamp();
 const SHELL_ORIGIN = "app://shell";
 const SHELL_URL = `${SHELL_ORIGIN}/ui/index.html`;
 const BG = "#2b2f3a";
@@ -56,6 +73,22 @@ const START_COUNTDOWN_S = 10;
 
 if (process.env.DDNET_AI_USER_DATA) app.setPath("userData", path.resolve(process.env.DDNET_AI_USER_DATA));
 app.setName("DDNet AI");
+
+{
+  let gpu = true;
+  try {
+    const p = JSON.parse(fs.readFileSync(path.join(app.getPath("userData"), "prefs.json"), "utf8"));
+    if (p !== null && typeof p === "object" && p.gpu === false) gpu = false;
+  } catch {
+
+  }
+  if (gpu) {
+    app.commandLine.appendSwitch("ignore-gpu-blocklist");
+    app.commandLine.appendSwitch("enable-gpu-rasterization");
+  } else {
+    app.disableHardwareAcceleration();
+  }
+}
 
 app.commandLine.appendSwitch("disable-features", "FluentOverlayScrollbar,FluentScrollbar,OverlayScrollbar");
 if (process.platform === "win32") app.setAppUserModelId(APP_ID);
@@ -414,7 +447,7 @@ function main() {
     runtime = resolveRuntime();
     addLog("app", t("папка бота: {root}", { root }));
     addLog("app", OFFLINE ? t("запускаю: {what} (без сети)", { what: runtime.label }) : t("запускаю: {what}", { what: runtime.label }));
-    bot = new BotSupervisor({ root, runtime, preferredPort: prefs.get("webPort"), offline: OFFLINE });
+    bot = new BotSupervisor({ root, runtime, preferredPort: prefs.get("webPort"), offline: OFFLINE, autoUpdate: prefs.get("autoUpdate") !== false });
     bot.on("line", ({ stream, text }) => addLog(stream, stream === "app" ? tr(text) : text));
     bot.on("spawn", ({ pid, port }) => {
       addLog("app", t("бот запущен, pid {pid}, порт {port}", { pid, port }));
@@ -430,6 +463,16 @@ function main() {
       if (pendingUpdateSha !== null) {
         notify(t("Обновление установлено"), t("Бот перезапущен на версии {sha}.", { sha: pendingUpdateSha.slice(0, 7) }));
         pendingUpdateSha = null;
+
+        if (appCodeStamp() !== APP_CODE_AT_START) {
+          addLog("app", t("обновилось само окно, перезапускаю его"));
+          quitting = true;
+
+          void (bot !== null ? bot.stop() : Promise.resolve()).finally(() => {
+            app.relaunch();
+            app.exit(0);
+          });
+        } else if (win !== null && !win.isDestroyed()) setImmediate(() => void win.webContents.loadURL(shellUrl()));
       }
       startPolling();
       pushState();
@@ -978,7 +1021,6 @@ function main() {
     });
     handle("setup:save", async (form) => {
       if (root === null) return { ok: false, errors: { server: t("Не найдена папка бота") } };
-      const before = settingsLib.readSettings(root) ?? {};
       const res = settingsLib.validateSetup(form);
       if (!res.ok) return { ok: false, errors: Object.fromEntries(Object.entries(res.errors).map(([k, v]) => [k, tr(v)])) };
       const firstRun = screenName() === "setup";
@@ -996,28 +1038,7 @@ function main() {
 
       else if (firstRun) {
         if (await checkForeignBot()) startBot();
-      } else {
-        const sameConnection = ((before.server === "auto" && saved.settings.server === "auto") || settingsLib.sameServer(before.server, saved.settings.server)) &&
-          (before.password ?? "") === (saved.settings.password ?? "");
-        const identityChanged = before.name !== saved.settings.name || before.clan !== saved.settings.clan || before.skin !== saved.settings.skin;
-        const killDelayChanged = Number(before.killDelay ?? 0) !== Number(saved.settings.killDelay ?? 0);
-        const mentionReplyChanged = String(before.mentionReply ?? "") !== String(saved.settings.mentionReply ?? "");
-        const liveOnly = bot !== null && bot.state === "running" && sameConnection && before.brain === saved.settings.brain && (identityChanged || killDelayChanged || mentionReplyChanged);
-        if (liveOnly) {
-          try {
-            if (identityChanged) {
-              await bot.command(`!name ${saved.settings.name}`);
-              await bot.command(`!clan ${saved.settings.clan || "-"}`);
-              await bot.command(`!skin ${saved.settings.skin}`);
-            }
-            if (killDelayChanged) await bot.command(`!killdelay ${saved.settings.killDelay}`);
-            if (mentionReplyChanged) await bot.command(`!reply ${saved.settings.mentionReply || "-"}`);
-            addLog("app", t("изменения применены без перезапуска"));
-          } catch {
-            await restartBot();
-          }
-        } else await restartBot();
-      }
+      } else await restartBot();
       return { ok: true };
     });
     handle("servers:list", (force) => fetchServers(force === true));
@@ -1054,6 +1075,8 @@ function main() {
         hotkey: prefs.get("hotkey"),
         defaultHotkey: DEFAULT_HOTKEY,
         closeToTray: prefs.get("closeToTray"),
+        gpu: prefs.get("gpu"),
+        autoUpdate: prefs.get("autoUpdate"),
         notifications: prefs.get("notifications"),
         favorites: prefs.get("favorites"),
         recent: prefs.get("recent"),
@@ -1079,7 +1102,7 @@ function main() {
         }
         out.hotkey = patch.hotkey;
       }
-      for (const k of ["closeToTray", "notifications", "logOpen", "startScreen"]) {
+      for (const k of ["closeToTray", "notifications", "logOpen", "startScreen", "gpu"]) {
         if (k in patch) {
           if (typeof patch[k] !== "boolean") throw new Error(t("плохое значение {key}", { key: k }));
           out[k] = patch[k];

@@ -6,7 +6,7 @@ const path = require("node:path");
 const SETTINGS_FILE = "settings.json";
 const BRAINS = ["planner", "bold", "scripted"];
 
-const LIMITS = { name: 15, clan: 11, skin: 23, password: 64, server: 255, killDelay: 60, mentionReply: 120 };
+const LIMITS = { name: 15, clan: 11, skin: 23, password: 64, server: 255 };
 
 const DEFAULTS = {
 
@@ -16,8 +16,6 @@ const DEFAULTS = {
   skin: "cammostripes",
   password: "",
   brain: "planner",
-  killDelay: 0,
-  mentionReply: "",
 };
 
 function settingsPath(root) {
@@ -26,7 +24,8 @@ function settingsPath(root) {
 
 function readSettings(root) {
   try {
-    const raw = JSON.parse(fs.readFileSync(settingsPath(root), "utf8"));
+
+    const raw = JSON.parse(fs.readFileSync(settingsPath(root), "utf8").replace(/^\uFEFF/, ""));
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
     return raw;
   } catch {
@@ -72,26 +71,34 @@ function validateSetup(input) {
   if (password !== undefined && password.length > LIMITS.password) errors.password = "Слишком длинный пароль";
   const brain = str("brain") || DEFAULTS.brain;
   if (!BRAINS.includes(brain)) errors.brain = "Неизвестный мозг";
-  const rawKillDelay = src.killDelay === undefined || src.killDelay === "" ? DEFAULTS.killDelay : Number(src.killDelay);
-  if (!Number.isFinite(rawKillDelay) || rawKillDelay < 0 || rawKillDelay > LIMITS.killDelay) errors.killDelay = `От 0 до ${LIMITS.killDelay} секунд`;
-  const mentionReply = str("mentionReply").trim();
-  if ([...mentionReply].length > LIMITS.mentionReply) errors.mentionReply = `Не длиннее ${LIMITS.mentionReply} символов`;
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  const value = { server, name, clan, skin, brain, killDelay: Math.round(rawKillDelay * 10) / 10, mentionReply };
+  const value = { server, name, clan, skin, brain };
   if (password !== undefined) value.password = password;
+
+  if (src.dummy !== undefined) value.dummy = src.dummy === true || src.dummy === "on" ? "on" : "off";
+  if (typeof src.dummyName === "string") {
+    const dn = src.dummyName.trim();
+    if ([...dn].length > LIMITS.name) errors.dummyName = `Не длиннее ${LIMITS.name} символов`;
+    else if (dn !== "" && dn === name) errors.dummyName = "Ник второго бота должен отличаться";
+    else value.dummyName = dn;
+  }
+
+  if (src.lowCpu !== undefined) value.lowCpu = src.lowCpu === true || src.lowCpu === "on" ? "on" : "off";
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
   return { ok: true, value };
 }
 
 function writeSettings(root, value) {
   const cur = readSettings(root) ?? {};
   const out = {};
-  for (const k of ["server", "name", "clan", "skin", "password", "brain", "killDelay", "mentionReply"]) {
+  for (const k of ["server", "name", "clan", "skin", "password", "brain"]) {
     if (value[k] !== undefined) out[k] = value[k];
     else if (cur[k] !== undefined) out[k] = cur[k];
 
     else out[k] = DEFAULTS[k];
   }
   for (const [k, v] of Object.entries(cur)) if (!(k in out)) out[k] = v;
+  for (const k of ["dummy", "dummyName", "lowCpu"]) if (value[k] !== undefined) out[k] = value[k];
   const file = settingsPath(root);
   const tmp = file + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(out, null, 2));
@@ -138,9 +145,12 @@ function publicSettings(settings) {
     clan: typeof s.clan === "string" ? s.clan : "",
     skin: pick("skin"),
     brain: BRAINS.includes(s.brain) ? s.brain : DEFAULTS.brain,
-    killDelay: Number.isFinite(Number(s.killDelay)) ? Math.max(0, Math.min(LIMITS.killDelay, Number(s.killDelay))) : DEFAULTS.killDelay,
-    mentionReply: typeof s.mentionReply === "string" ? s.mentionReply.slice(0, LIMITS.mentionReply) : DEFAULTS.mentionReply,
     hasPassword: typeof s.password === "string" && s.password !== "",
+
+    dummy: s.dummy === true || s.dummy === 1 || (typeof s.dummy === "string" && ["on", "true", "yes", "1"].includes(s.dummy.trim().toLowerCase())),
+    dummyName: typeof s.dummyName === "string" ? s.dummyName : "",
+
+    lowCpu: s.lowCpu === true || s.lowCpu === 1 || (typeof s.lowCpu === "string" && ["on", "true", "yes", "1"].includes(s.lowCpu.trim().toLowerCase())),
   };
 }
 

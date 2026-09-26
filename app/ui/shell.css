@@ -147,7 +147,10 @@ input.bad{border-color:var(--bad)}
 .ferr{color:var(--bad);font-size:11.5px;font-style:normal;min-height:0}
 .ferr:empty{display:none}
 .ferr.block{padding:0 16px 6px 44px}
-.brains{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.brains{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.brains .brain.test{display:none}
+.brains.all .brain.test{display:flex}
+#brains-more{margin-top:6px;align-self:flex-start}
 .brain{position:relative;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:8px;border:1px solid transparent;
   background:rgba(0,0,0,.25);cursor:pointer;transition:border-color .12s,background .12s}
 .brain:hover{background:rgba(128,128,128,.25)}
@@ -242,7 +245,7 @@ input.bad{border-color:var(--bad)}
 .kbd.rec{border-color:var(--warn);color:var(--warn)}
 .about{padding:4px 16px 8px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12px}
 .about dt{color:var(--faint)}
-.about dd{margin:0;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:text}
+.about dd{margin:0;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .about dd.wrap{white-space:normal;line-height:1.45}
 
 #logdock{flex:none;height:230px;display:flex;flex-direction:column;background:var(--bg3);position:relative}
@@ -252,7 +255,7 @@ input.bad{border-color:var(--bad)}
 .ld-head b{font-weight:600;font-size:12px;color:var(--ink);margin-right:6px}
 .ld-head .ic{color:var(--acc)}
 .grow{flex:1}
-.ld-body{flex:1;overflow:auto;padding:6px 14px;font:11.5px/1.55 "DejaVu Sans Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;user-select:text;white-space:pre-wrap;word-break:break-word}
+.ld-body{flex:1;overflow:auto;padding:6px 14px;font:11.5px/1.55 "DejaVu Sans Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;white-space:pre-wrap;word-break:break-word}
 .ld-body div{color:#c9cfd9}
 .ld-body .err{all:unset;display:block;color:#f2b4a3}
 .ld-body .app{color:var(--acc)}
@@ -334,3 +337,13 @@ select.pick option{background:#2c3850;color:#fff}
 
 html.i18n-wait body{visibility:hidden;animation:i18n-show 0s linear 1.5s forwards}
 @keyframes i18n-show{to{visibility:visible}}
+
+.dummy-on{display:inline-flex;align-items:center;gap:8px;cursor:pointer;flex:none;position:relative}
+.dummy-on input{position:absolute;opacity:0;pointer-events:none}
+#f-dummyName{flex:1;min-width:0}
+.dummy-on+small.muted{flex:1;min-width:0;font-size:12px;line-height:1.35}
+.dummy-on input:checked+.sw{background:rgba(255,255,255,.62)}
+.dummy-on input:checked+.sw::after{left:18px}
+.dummy-on input:focus-visible+.sw{box-shadow:0 0 0 3px rgba(127,176,224,.35)}
+
+#stage:has(> .screen:not([hidden])) > #bot{visibility:hidden}

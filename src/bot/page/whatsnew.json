@@ -1,0 +1,106 @@
+[
+ {
+  "id": "2026.09.26h",
+  "ru": [
+   "ВБ включается только на той версии Copy Love Box, под которую он сделан (размер карты и точки зацепа в трубе). На другой версии с тем же именем (например, на Swarfey) бот играет обычный блок, а не гибнет в трубе раз за разом.",
+   "Если по пути на ВБ бот погибает 4 раза подряд, он оставляет ВБ на 5 минут (потом на 10, 20, 30) и играет там, где стоит. Команда !wb left/right/auto отменяет паузу сразу."
+  ],
+  "en": [
+   "The WB is held only on the version of Copy Love Box it was made for (the map's size and the tube's rope anchors). On another version with the same name (Swarfey's, say) the bot plays plain block instead of dying in the tube again and again.",
+   "If the bot dies four times in a row on the way to the WB, it leaves the WB alone for 5 minutes (then 10, 20, 30) and plays where it is. !wb left/right/auto ends the pause at once."
+  ]
+ },
+ {
+  "id": "2026.09.26g",
+  "ru": [
+   "Счёт дуэли для стрима: в OBS добавь источник «Браузер» с адресом, который показан на вкладке «Записи» (…/overlay). Крупно показывает текущую дуэль (или последнюю), фон прозрачный; с ?bg=1 на тёмной подложке."
+  ],
+  "en": [
+   "The duel's score for a stream: in OBS add a \"Browser\" source with the address shown on the Clips tab (…/overlay). It shows the duel under way (or the last one) in big letters on a transparent background; ?bg=1 adds a dark backing."
+  ]
+ },
+ {
+  "id": "2026.09.26f",
+  "ru": [
+   "Дуэль (для вызова «победи бота»): закрыты способы обмануть бота не игрой. Соперник на /pause, замерший на месте или с ником, где есть ник друга, всё равно противник. Ник вида «/pause x» больше не превращает автоответ в команду самому боту. Дуэль распознаётся и когда на сервере всего пара игроков. После блока бот больше не делает себе /kill через 4 секунды.",
+   "Друг считается противником на арене, только если приглашение называет именно его («X challenged you»)."
+  ],
+  "en": [
+   "The duel (for the \"beat the bot\" challenge): the ways to beat the bot by something other than play are closed. An opponent on /pause, standing still, or with a friend's nick inside his own is still the opponent. A nick like \"/pause x\" no longer turns an automatic reply into a command run on the bot. The duel is recognised with only a couple of players on the server. After a block the bot no longer /kills itself four seconds later.",
+   "A friend is the arena opponent only when the invitation names him (\"X challenged you\")."
+  ]
+ },
+ {
+  "id": "2026.09.26e",
+  "ru": [
+   "Бот не принимал вызов на дуэль от игрока с «lost» или «won» в нике (например kkvlost): слово внутри ника читалось как «проиграл». Теперь принимает.",
+   "Если вызов принимает твой автоответ (/accept на строку сервера или шёпот), арена тоже считается дуэлью: без ВБ и походов, со счётом. Публичное «кто на дуэль?» режим дуэли не включает."
+  ],
+  "en": [
+   "The bot did not accept a duel from a player with \"lost\" or \"won\" in the nick (kkvlost, say): the word inside the nick read as a result. Now it does.",
+   "When your automatic reply accepts a duel (/accept to a server line or a whisper), the arena counts as a duel too: no WB, no walks, with the score. A public \"who wants a duel?\" does not start duel mode."
+  ]
+ },
+ {
+  "id": "2026.09.26d",
+  "ru": [
+   "Ник, который лишь часть ника друга («e» при друге «fe») или второго бота («Tee» при «AI-Tee2»), больше не делает игрока другом: раньше бот таких не трогал. Второго бота бот теперь узнаёт по номеру игрока на сервере: тёзка не напарник, а напарник под «(1)ником» после переподключения всё ещё свой.",
+   "Второй бот теперь видит изменения списков вар, тима и игнор, сделанные в окне или командами, а не только те, что были при запуске.",
+   "settings.json, сохранённый в Блокноте, больше не сбрасывает настройки; испорченный файл сохраняется рядом как settings.json.bad-…, а не затирается.",
+   "Кнопка «проверить обновление» пишет, если GitHub недоступен, а не «обновлений нет».",
+   "Бот думает чуть быстрее (те же решения): заметно на слабом или загруженном ПК."
+  ],
+  "en": [
+   "A nick that is only part of a friend's (\"e\" with the friend \"fe\") or of the second bot's (\"Tee\" with \"AI-Tee2\") no longer makes a player a friend; before, the bot left such players alone. The second bot is now known by its player number on the server: a namesake is not the partner, and the partner renamed \"(1)nick\" after a reconnect is still on the team.",
+   "The second bot now follows changes to the war, team and ignore lists made in the window or by commands, not only the lists it started with.",
+   "A settings.json saved in Notepad no longer resets the settings; a damaged file is kept beside as settings.json.bad-… instead of being written over.",
+   "The \"check for updates\" button says so when GitHub cannot be reached, instead of \"no updates\".",
+   "The bot thinks a little faster (the same decisions): noticeable on a weak or busy PC."
+  ]
+ },
+ {
+  "id": "2026.09.26c",
+  "ru": [
+   "Дуэль на арене (принятый вызов) считает счёт: сколько раз бот заморозил соперника и сколько раз соперник его. Счёт виден на вкладке «Игра», пока дуэль идёт.",
+   "На вкладке «Записи» список сыгранных дуэлей (второго бота тоже): соперник, счёт, длительность и общий итог. Удобно для открытого вызова «победи бота»."
+  ],
+  "en": [
+   "A duel in the arena (an accepted invitation) keeps score: how many times the bot froze the opponent and how many times the opponent froze it. The Game tab shows the score while the duel lasts.",
+   "The Clips tab lists the duels played (the second bot's too): opponent, score, length and the overall total. Handy for the open \"beat the bot\" challenge."
+  ]
+ },
+ {
+  "id": "2026.09.26b",
+  "ru": [
+   "Бот кидает замороженных во фриз в любой драке, а не только на ВБ (в игре «все против всех» +38 тиков заморозки за игру в нашу пользу).",
+   "В логе видно, кого бот заморозил и кто заморозил его; на вкладке «Игра» счётчики «Заморозил» и «Заморозили».",
+   "Второй бот больше не записывается в друзья навсегда: старые такие записи почищены.",
+   "Панель «Сейчас» в настройках на русском."
+  ],
+  "en": [
+   "The bot throws frozen players into the freeze in any fight, not only on the WB (+38 freeze-ticks a game in our favour in a free-for-all).",
+   "The log shows whom the bot froze and who froze it; the Game tab counts \"Froze\" and \"Frozen by them\".",
+   "The second bot is no longer written to the friend list for good; old entries like that are cleaned up.",
+   "The Now card in the settings speaks the page's language."
+  ]
+ },
+ {
+  "id": "2026.09.26",
+  "ru": [
+   "ВБ: бот кидает замороженных во фриз, пока они не оттаяли (стена, потолок), и реже сам улетает в потолок от удара снизу. На стенде: запечатанных до разморозки больше на 0.8-1.7 за раунд, своих случайных фризов на треть меньше.",
+   "Тима (друзья): друга во фризе в пределах 10 тайлов бот вытягивает хуком и выбивает молотом, потом дерётся дальше; первым бьёт того, кто лезет к другу. Через всю карту и через фриз не ходит.",
+   "Режим ВБ: на спавне бот больше не дерётся с кем попало, отвечает только тем, кто бьёт его самого, и идёт на ВБ.",
+   "Второй бот думает в своём потоке: вдвоём они больше не ждут друг друга.",
+   "Слабый ПК: бот больше не отстаёт от сервера на секунды (тот самый пинг 1000 и бот стоит). Если всё равно тормозит: галочка «Режим для слабого ПК» на вкладке «Игра» (в окне ещё шестерёнка → «Запуск»).",
+   "Настройки поиска подписаны, кнопка «Проверить обновления» снова работает."
+  ],
+  "en": [
+   "WB: the bot throws frozen arrivals into the freeze (the wall, the ceiling) before they thaw, and is sent up into the ceiling by a hit from below less often. On the bench: 0.8-1.7 more sealed before the thaw per round, a third fewer freezes of its own.",
+   "Teammates (friends): a friend lying in the freeze within 10 tiles is pulled out with the rope and hammered free, then the fight goes on; whoever goes for a friend is hit first. Never across the map or through freeze.",
+   "WB mode: at the spawn the bot no longer fights everybody; it answers only those who hit it and walks to the WB.",
+   "The second bot thinks on its own thread: the two no longer wait for each other.",
+   "A weak PC: the bot no longer falls seconds behind the server (the ping 1000 with the bot standing still). If it still lags: the \"Mode for a weak PC\" tick box on the Game tab (in the window, also the gear → \"Launch\").",
+   "The search settings have explanations; the Check for updates button works again."
+  ]
+ }
+]

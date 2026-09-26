@@ -4,7 +4,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { crc32 } from "node:zlib";
 import { CONTENT_TYPES, DATA_CACHE_DIR, SKIN_CACHE_DIR, chosenAssets, dataDirCandidates, downloadData, downloadSkin, downloadableData, findDownloadedMap, firstExisting, pickDataDir, readIfSmall, safeSkinName, scanForUnpacked, skinFiles, steamLibraryData, typedDataDir, userDirCandidates, wavFromPcm } from "./webAssets.ts";
 import decodeWavpack from "./wavpack/decode-wavpack.js";
-import { parseSceneAsync } from "./webMap.ts";
+import { SCENE_CACHE_DIR, parseSceneAsync } from "./webMap.ts";
 import type { ParsedScene } from "./webMap.ts";
 import { pageScript } from "./webPage.ts";
 import { isAuto } from "./serverPick.ts";
@@ -36,8 +36,9 @@ function defaultAssetRoot(): string | null {
 
 function readLaunch(): Record<string, string> {
   try {
-    const raw = JSON.parse(readFileSync(LAUNCH_FILE, "utf8")) as Record<string, string>;
-    return typeof raw === "object" && raw !== null ? raw : {};
+
+    const raw = JSON.parse(readFileSync(LAUNCH_FILE, "utf8").replace(/^\uFEFF/, "")) as Record<string, string>;
+    return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
   } catch {
     return {};
   }
@@ -113,17 +114,19 @@ function wavOf(file: string): Promise<Buffer | null> {
   }
   return job;
 }
-import type { BotLine, BotStatus, LiveFrame, LiveMap } from "./bot.ts";
+import type { BotLine, BotStatus, DuelRow, LiveFrame, LiveMap } from "./bot.ts";
 
 export type WebBot = {
   status: () => BotStatus;
   statsLine: () => string;
-  handleConsole: (line: string) => string;
+
+  handleConsole: (line: string) => string | Promise<string>;
 
   liveMap: () => LiveMap | null;
   liveFrame: () => LiveFrame | null;
 
   clipList?: () => { name: string; size: number; when: number }[];
+  duelList?: () => DuelRow[];
   clipPath?: (name: string) => string | null;
   configInfo?: () => unknown;
   commandNames?: () => string[];
@@ -132,9 +135,13 @@ export type WebBot = {
 
   relationsInfo?: () => Record<string, string[]>;
   setRelation?: (list: "war" | "friend" | "ignore", name: string, on: boolean) => string;
+
+  autoChatInfo?: () => unknown;
+  setAutoChat?: (raw: unknown) => unknown;
   checkUpdate?: () => Promise<string>;
   knobs?: () => { key: string; value: unknown; def: unknown; changed: boolean }[];
   setKnob?: (key: string, value: unknown) => string;
+  resetKnobs?: () => string;
 
   mapData?: () => { name: string; bytes: Uint8Array } | null;
 
@@ -155,6 +162,37 @@ function clientOf(bot: WebBot): ClientLike | null {
 const MAX_LINES = 200;
 
 export type WebUi = { port: number; push: (line: BotLine) => void; close: () => void };
+
+const OVERLAY_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>DDNet AI duel</title><style>
+html,body{margin:0;background:transparent;color:#fff;font:800 56px/1.15 system-ui,"Segoe UI",sans-serif;text-shadow:0 2px 8px #000,0 0 3px #000}
+#box{display:inline-flex;flex-direction:column;gap:4px;padding:14px 22px;border-radius:14px}
+#box.bg{background:rgba(10,14,20,.72)}
+#box[hidden]{display:none}
+#row{display:flex;gap:.45em;align-items:baseline;white-space:nowrap}
+.n{font-size:.62em;font-weight:700;max-width:9em;overflow:hidden;text-overflow:ellipsis}
+#sc{font-variant-numeric:tabular-nums}
+#sub{font:600 22px/1.2 system-ui,sans-serif;opacity:.85}
+#box.idle{opacity:.7}
+</style></head><body><div id="box"><div id="row"><span class="n" id="me"></span><span id="sc"></span><span class="n" id="op"></span></div><div id="sub"></div></div>
+<script>
+const $=(id)=>document.getElementById(id);
+if(new URLSearchParams(location.search).get("bg")==="1")$("box").classList.add("bg");
+async function pull(){
+ let d=null;try{d=await(await fetch("/api/duelnow",{cache:"no-store"})).json()}catch{d=null}
+ const box=$("box");
+ if(!d){box.hidden=true;return}
+ const cur=d.now,last=d.last,show=cur||last;
+ box.hidden=!show;if(!show)return;
+ box.classList.toggle("idle",!cur);
+ $("me").textContent=cur?d.me:(last.by||d.me);
+ $("op").textContent=cur?cur.name:last.opponent;
+ $("sc").textContent=(cur?cur.ours:last.ours)+" : "+(cur?cur.theirs:last.theirs);
+ $("sub").textContent=cur?"duel":"last duel";
+}
+pull();setInterval(pull,500);
+</script></body></html>`;
+
+const DUEL_ROWS = 50;
 
 export function startWebUi(bot: WebBot, port: number, version: string): Promise<WebUi> {
 
@@ -251,7 +289,7 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
     scene = entry;
     const src = mapBytes();
     if (src === null) return Promise.resolve(null);
-    entry.job = parseSceneAsync(src.bytes, src.name)
+    entry.job = parseSceneAsync(src.bytes, src.name, 4, SCENE_CACHE_DIR)
       .catch(() => null)
       .then((parsed) => {
         entry.parsed = parsed;
@@ -399,6 +437,33 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
       return;
     }
 
+    if (url.pathname === "/overlay") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.end(OVERLAY_PAGE);
+      return;
+    }
+    if (url.pathname === "/api/duelnow") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      const st = bot.status();
+      const last = bot.duelList?.()[0] ?? null;
+
+      const second = (st as { dummy?: { name?: string; duelScore?: { name: string; ours: number; theirs: number } | null } }).dummy;
+      const mine = st.panel?.duelScore ?? null;
+      const now = mine ?? second?.duelScore ?? null;
+      const me = mine === null && now !== null ? (second?.name ?? "") : (st.name ?? "");
+      res.end(JSON.stringify({ me, now, last: last === null ? null : { opponent: last.opponent, ours: last.ours, theirs: last.theirs, at: last.at, by: last.by ?? null } }));
+      return;
+    }
+
+    if (url.pathname === "/api/duels") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+
+      const all = bot.duelList?.() ?? [];
+      const sum = (k: "ours" | "theirs"): number => all.reduce((a, d) => a + (Number.isFinite(d[k]) ? d[k] : 0), 0);
+      res.end(JSON.stringify({ n: all.length, ours: sum("ours"), theirs: sum("theirs"), list: all.slice(0, DUEL_ROWS) }));
+      return;
+    }
+
     if (url.pathname === "/api/clips") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       res.end(JSON.stringify(bot.clipList?.() ?? []));
@@ -434,8 +499,8 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
       req.on("end", () => {
         let reply = "";
         try {
-          const body = JSON.parse(raw) as { key: string; value: unknown };
-          reply = bot.setKnob?.(body.key, body.value) ?? t("правка настроек недоступна");
+          const body = JSON.parse(raw) as { key: string; value: unknown; reset?: boolean };
+          reply = body.reset === true ? (bot.resetKnobs?.() ?? t("правка настроек недоступна")) : (bot.setKnob?.(body.key, body.value) ?? t("правка настроек недоступна"));
         } catch (err) {
           reply = err instanceof Error ? err.message : String(err);
         }
@@ -458,7 +523,7 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
             if (typeof body.server === "string" && typeof cur.password === "string" && cur.password !== "" && !sameLaunchServer(cur.server, body.server)) {
               cur.password = "";
             }
-            for (const k of ["server", "name", "clan", "skin", "mentionReply", "killDelay", "ddnetData", "skinDownload"]) {
+            for (const k of ["server", "name", "clan", "skin", "ddnetData", "skinDownload", "dummy", "dummyName"]) {
               if (typeof body[k] === "string") cur[k] = body[k] as string;
             }
             writeFileSync(LAUNCH_FILE, JSON.stringify(cur, null, 2));
@@ -573,6 +638,29 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
       });
       return;
     }
+    if (url.pathname === "/api/autochat" && req.method !== "POST") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify(bot.autoChatInfo?.() ?? null));
+      return;
+    }
+    if (url.pathname === "/api/autochat" && req.method === "POST") {
+      let raw = "";
+      req.on("data", (c) => {
+        raw += String(c);
+        if (raw.length > 20000) req.destroy();
+      });
+      req.on("end", () => {
+        let cfg: unknown = null;
+        try {
+          cfg = bot.setAutoChat?.(JSON.parse(raw)) ?? null;
+        } catch {
+          cfg = null;
+        }
+        res.writeHead(cfg === null ? 400 : 200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(cfg));
+      });
+      return;
+    }
     if (url.pathname === "/api/commands") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "max-age=60" });
       res.end(JSON.stringify(bot.commandNames?.() ?? []));
@@ -586,12 +674,12 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
     if (url.pathname === "/cmd" && req.method === "POST") {
       let raw = "";
       req.on("data", (c) => { raw += String(c); });
-      req.on("end", () => {
+      req.on("end", async () => {
         let reply = "";
         let line = "";
         try {
           line = String((JSON.parse(raw) as { line?: string }).line ?? "");
-          reply = bot.handleConsole(line) ?? "";
+          reply = (await bot.handleConsole(line)) ?? "";
         } catch (err) {
           reply = err instanceof Error ? err.message : String(err);
         }
@@ -657,7 +745,13 @@ function pageFor(lang: Lang): string {
   if (have !== undefined) return have;
   const read = (name: string): string => readFileSync(new URL(name, PAGE_DIR), "utf8");
 
-  const script = `const LANG=${JSON.stringify(lang)};\nconst EN=${JSON.stringify(EN)};\nconst {t,tr}=(${makeT.toString()})(EN,LANG);\n${pageScript()}\n${read("page.js")}`;
+  let news: unknown = [];
+  try {
+    news = JSON.parse(read("whatsnew.json"));
+  } catch {
+
+  }
+  const script = `const LANG=${JSON.stringify(lang)};\nconst EN=${JSON.stringify(EN)};\nconst NEWS=${JSON.stringify(news)};\nconst {t,tr}=(${makeT.toString()})(EN,LANG);\n${pageScript()}\n${read("page.js")}`;
   const page = read("index.html")
     .replace('<html lang="ru">', () => `<html lang="${lang}"${lang === "en" ? ' class="i18n-wait"' : ""}>`)
     .replace("</head>", () => `<style>${read("page.css")}</style></head>`)

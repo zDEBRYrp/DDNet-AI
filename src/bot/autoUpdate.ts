@@ -11,6 +11,20 @@ const BRANCH = "main";
 
 const API = process.env.DDNET_AI_UPDATE_API ?? "https://api.github.com";
 
+const PLAIN_GIT = process.env.DDNET_AI_UPDATE_API === undefined;
+const GIT = "https://github.com";
+const CODELOAD = "https://codeload.github.com";
+
+async function headFromGit(repo: string): Promise<string> {
+  const res = await fetch(`${GIT}/${repo}.git/info/refs?service=git-upload-pack`, { headers: { "user-agent": "git/2.40 ddnet-ai-bot" } });
+  if (res.status === 404) throw new Error(t("репозиторий {repo} не найден", { repo }));
+  if (!res.ok) throw new Error(`git ${res.status}`);
+  const text = await res.text();
+  const m = new RegExp(`([0-9a-f]{40}) refs/heads/${BRANCH}(?:\\n|\\s|$)`).exec(text);
+  if (m === null) throw new Error("git: no refs/heads/" + BRANCH);
+  return m[1];
+}
+
 const CHECK_EVERY_MS = 5 * 60 * 1000;
 
 const TAKE = [
@@ -109,22 +123,44 @@ export function currentVersion(root: string): string {
   }
 }
 
+let lastHead: { repo: string; etag: string; sha: string } | null = null;
+
+let limitedUntilMs = 0;
+
 async function latestCommit(ch: Channel): Promise<string> {
-  const res = await fetch(`${API}/repos/${ch.repo}/commits/${BRANCH}`, {
-    headers: { ...headers(ch), accept: "application/vnd.github.sha" },
-  });
+  if (PLAIN_GIT && ch.token === "") {
+    try {
+      return await headFromGit(ch.repo);
+    } catch {
+
+    }
+  }
+  const h: Record<string, string> = { ...headers(ch), accept: "application/vnd.github.sha" };
+  if (lastHead !== null && lastHead.repo === ch.repo) h["if-none-match"] = lastHead.etag;
+  const res = await fetch(`${API}/repos/${ch.repo}/commits/${BRANCH}`, { headers: h });
+  if (res.status === 304 && lastHead !== null && lastHead.repo === ch.repo) return lastHead.sha;
+  if (res.status === 403 || res.status === 429) {
+    const reset = Number(res.headers.get("x-ratelimit-reset"));
+    const retry = Number(res.headers.get("retry-after"));
+    limitedUntilMs = Number.isFinite(reset) && reset > 0 ? reset * 1000 : Date.now() + (Number.isFinite(retry) && retry > 0 ? retry * 1000 : 30 * 60 * 1000);
+  }
   if (res.status === 401) throw new Error(t("{file} не подходит", { file: TOKEN_FILE }));
   if (res.status === 404) throw new Error(t("репозиторий {repo} не найден", { repo: ch.repo }));
   if (res.status === 403 || res.status === 429) throw new Error(t("GitHub просит подождать с запросами, проверю позже"));
   if (!res.ok) throw new Error(`github ${res.status}`);
-  return (await res.text()).trim();
+  const sha = (await res.text()).trim();
+  const etag = res.headers.get("etag");
+  if (etag !== null && etag !== "") lastHead = { repo: ch.repo, etag, sha };
+  return sha;
 }
 
 export async function apply(root: string, sha: string, token = ""): Promise<string[]> {
   const ch = channelOf(token);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ddnet-ai-upd-"));
   try {
-    const res = await fetch(`${API}/repos/${ch.repo}/tarball/${sha}`, { headers: headers(ch) });
+
+    const url = PLAIN_GIT && ch.token === "" ? `${CODELOAD}/${ch.repo}/tar.gz/${sha}` : `${API}/repos/${ch.repo}/tarball/${sha}`;
+    const res = await fetch(url, { headers: headers(ch) });
     if (!res.ok) throw new Error(`codeload ${res.status}`);
     const tar = path.join(tmp, "src.tar.gz");
     fs.writeFileSync(tar, Buffer.from(await res.arrayBuffer()));
@@ -147,14 +183,22 @@ export async function apply(root: string, sha: string, token = ""): Promise<stri
   }
 }
 
+export type CheckResult = { kind: "current" | "applied" | "failed" | "stopped"; text: string };
+
 export function startAutoUpdate(
   root: string,
   onEvent: (e: UpdateEvent) => void,
   quit: () => void,
-): { stop: () => void; check: () => Promise<void> } {
+): { stop: () => void; check: () => Promise<CheckResult> } {
   let stopped = false;
-  const tick = async (): Promise<void> => {
-    if (stopped) return;
+  const tick = async (manual = false): Promise<CheckResult> => {
+    if (stopped) return { kind: "stopped", text: "" };
+
+    if (Date.now() < limitedUntilMs) {
+      const text = t("GitHub просит подождать с запросами, проверю позже");
+      if (manual) onEvent({ kind: "failed", text });
+      return { kind: "failed", text };
+    }
     try {
       const token = tokenOf(root);
       const have = currentVersion(root);
@@ -162,19 +206,24 @@ export function startAutoUpdate(
       if (have === "") {
 
         fs.writeFileSync(stampFile(root), sha);
-        return;
+        return { kind: "current", text: "" };
       }
-      if (sha === have) return;
+      if (sha === have) return { kind: "current", text: "" };
       onEvent({ kind: "found", text: t("есть обновление ({sha}), качаю...", { sha: sha.slice(0, 7) }) });
       const changed = await apply(root, sha, token);
       if (!needsRestart(changed, root)) {
-        onEvent({ kind: "current", sha, text: t("обновлено до {sha}: только описание, бот играет дальше", { sha: sha.slice(0, 7) }) });
-        return;
+        const text = t("обновлено до {sha}: только описание, бот играет дальше", { sha: sha.slice(0, 7) });
+        onEvent({ kind: "current", sha, text });
+        return { kind: "applied", text };
       }
-      onEvent({ kind: "applied", sha, text: t("обновлено до {sha}, перезапускаюсь", { sha: sha.slice(0, 7) }) });
+      const text = t("обновлено до {sha}, перезапускаюсь", { sha: sha.slice(0, 7) });
+      onEvent({ kind: "applied", sha, text });
       quit();
+      return { kind: "applied", text };
     } catch (err) {
-      onEvent({ kind: "failed", text: t("обновление не вышло: {err}", { err: err instanceof Error ? err.message : String(err) }) });
+      const text = t("обновление не вышло: {err}", { err: err instanceof Error ? err.message : String(err) });
+      onEvent({ kind: "failed", text });
+      return { kind: "failed", text };
     }
   };
   void tick();
@@ -185,6 +234,6 @@ export function startAutoUpdate(
       stopped = true;
       clearInterval(timer);
     },
-    check: tick,
+    check: () => tick(true),
   };
 }

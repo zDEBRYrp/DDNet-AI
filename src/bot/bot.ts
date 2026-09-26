@@ -10,6 +10,7 @@ import { WEAPON_GRENADE, WEAPON_HAMMER, emptyInput, wireAngleRad } from "../core
 import { HOOK_FLYING, HOOK_IDLE } from "../core/characterCore.ts";
 import type { RecurrentPolicy } from "../nn/gru.ts";
 import { PLANNER_DEFAULTS, Planner, ropeCatchAlong } from "../plan/planner.ts";
+import type { PlannerConfig } from "../plan/planner.ts";
 import { getLang, isLang, setLang, t } from "../i18n.ts";
 import type { Lang } from "../i18n.ts";
 
@@ -51,7 +52,7 @@ import { LiveWorld, mapCollisionFromClient } from "./liveWorld.ts";
 import { RingRecorder, snapInput, snapTee } from "../watch/recording.ts";
 import type { RecFrame } from "../watch/recording.ts";
 import { enemyInputFromSnapshot, syncOthers, syncPlanningWorld, syncPlanningWorldLegacy } from "../plan/livePlan.ts";
-import { sealedIn } from "../plan/seal.ts";
+import { restsInFreeze, sealedIn } from "../plan/seal.ts";
 import { escapeExists, saferInput } from "../plan/shield.ts";
 import { deadZone, findRoute, spawnTiles } from "../plan/route.ts";
 import { FreezeMemory } from "../plan/memory.ts";
@@ -60,9 +61,17 @@ import type { Mlp } from "../nn/mlp.ts";
 import type { Recording } from "../watch/recording.ts";
 import { findIncidents, mergeOverlapping } from "../watch/incidents.ts";
 import { Navigator, teleGoals, tileGoal } from "./navigate.ts";
+import { LagWatch, LOW_CPU } from "./cpuLoad.ts";
+import type { LagSummary } from "./cpuLoad.ts";
 import type { NavGoal } from "./navigate.ts";
-import { installNetworkGuard, patchHuffman, patchRedirect } from "./netPatch.ts";
+import type { Crossing } from "./crossing.ts";
+import { inAnyBox } from "./crossing.ts";
+import { WAYBLOCKS, WbSideChooser, inWbHall, inWbLeash, inWbZone, sideAt, sideDef, wayblockFor, wbWalkAllowed } from "./wayblock.ts";
+import type { WbDef, WbSide } from "./wayblock.ts";
+import { installNetworkGuard, patchHuffman, patchRedirect, patchSnapshotDecoder } from "./netPatch.ts";
 import type { NetGuard } from "./netPatch.ts";
+import { AutoChat } from "./autoChat.ts";
+import type { AutoChatConfig } from "./autoChat.ts";
 import type { MapClientLike, RawSnapItem, SnapshotSource } from "./liveWorld.ts";
 
 const require = createRequire(import.meta.url);
@@ -131,9 +140,17 @@ const ECHO_LOG = 8;
 
 const MAX_LAG_TICKS = 6;
 const DUEL_ACCEPT_COOLDOWN_MS = 15000;
+
+const DUEL_ACCEPT_WINDOW_MS = 120_000;
+
+const AUTO_ACCEPT_HOLD_MS = 10_000;
+
+const DUEL_ENTER_TICKS = 25;
+
+const DUEL_LEAVE_TICKS = 100;
 const EMOTE_COOLDOWN_MS = 3000;
 
-export const COMMAND_PREFIXES = ["!", "?", "/", "."];
+export const COMMAND_PREFIXES = ["!", "?"];
 
 const BRUSH_OFFS = ["не", "лол", "ахах нет", "скилл", "чё", "не бот", "мимо", "ну да ну да"];
 
@@ -150,9 +167,60 @@ export const TARGET_MAX_PX = 1600;
 export const AGGRESSOR_RANGE_PX = 500;
 export const AGGRESSOR_MEMORY_TICKS = 3 * 50;
 
-const HOME_DEFEND_RADIUS_PX = 900;
-const TEAM_RESCUE_RANGE_PX = 128;
-const TEAM_RESCUE_HAMMER_RANGE_PX = 96;
+const SWING_AT_US_PX = 128;
+
+const BLOCK_CREDIT_TICKS = 50;
+
+const TELEPORT_JUMP_PX = 200;
+
+const WB_WALK_MAX_FAILS = 4;
+const WB_WALK_PAUSE_MS = 5 * 60_000;
+const WB_WALK_PAUSE_MAX_MS = 30 * 60_000;
+
+const DUEL_LOG_KEEP = 2000;
+
+const HAMMER_REACH_AHEAD_PX = 21;
+const HAMMER_REACH_PX = 56;
+
+const REFREEZE_TICKS = 6;
+const AT_US_MEMORY_TICKS = AGGRESSOR_MEMORY_TICKS;
+
+const AT_FRIEND_SCORE = 450;
+const RESCUE_RANGE_PX = 10 * 32;
+
+const RESCUE_HAMMER_PX = 56;
+
+const RESCUE_MIN_FREEZE_TICKS = 25;
+const RESCUE_WALK_RETRY_TICKS = 2 * 50;
+
+const RESCUE_GIVE_UP_TICKS = 3 * 50;
+const RESCUE_PAUSE_TICKS = 10 * 50;
+
+const PULL_ROLL_TICKS = 40;
+const PULL_HOLDS = [8, 16, 24, 32] as const;
+
+const PULL_GIVE_UP_TICKS = 5 * 50;
+
+const PULL_NONE_TICKS = 10;
+
+const GO_HOME_AFTER_TICKS = 4 * 50;
+
+const WB_RETURN_TICKS = 50;
+
+const WB_FINISH = process.env.WB_FINISH !== "0";
+
+const WB_THAW_URGENCY = Number(process.env.WB_URGENCY ?? "0");
+
+const WB_PLAN_OVERRIDES: Partial<PlannerConfig> = process.env.WB_PLAN
+  ? (JSON.parse(process.env.WB_PLAN) as Partial<PlannerConfig>)
+  : { noThawRope: true, frozenThrow: 3, airJumpCost: 0.3, launchExactReach: 100 };
+
+function onWbSpot(here: { tx: number; ty: number }, p: { tx: number; ty: number }): boolean {
+  return Math.abs(here.tx - p.tx) <= 2 && Math.abs(here.ty - p.ty) <= 2;
+}
+
+export const WB_ZONE_SCORE = 300;
+const WAYBLOCK_NAMES = WAYBLOCKS.map((d) => `'${d.name}'`).join(" and ");
 
 const TRAVEL_RETRY_TICKS = 5 * 50;
 
@@ -195,12 +263,26 @@ const FOLLOW_GOAL_TILES = 3;
 const FOLLOW_JUMP_PX = 8 * 32;
 const GOTO_USAGE = "?goto tele | ?goto <x> <y> in tiles | ?goto <nick> (or @nick) | ?goto for progress | ?stop to call it off";
 
-function listed(list: Map<string, string>, nameKey: string): boolean {
+function listed(list: Map<string, string>, nameKey: string, partners?: ReadonlySet<string>, byId = false): boolean {
   if (nameKey === "" || list.size === 0) return false;
-  if (list.has(nameKey)) return true;
+  const bare = nameKey.replace(DUPLICATE_PREFIX, "");
+  const partnerish = (key: string): boolean => partners?.has(key.replace(DUPLICATE_PREFIX, "")) === true;
+  if (list.has(nameKey) && !(byId && partnerish(nameKey))) return true;
   for (const key of list.keys()) {
-    if (key !== "" && (nameKey.includes(key) || key.includes(nameKey))) return true;
+    if (key === "" || partnerish(key)) continue;
+    if (nameKey.includes(key) || key.replace(DUPLICATE_PREFIX, "") === bare) return true;
   }
+  return false;
+}
+
+const DUPLICATE_PREFIX = /^\(\d+\)/;
+
+function partnerNick(partners: ReadonlySet<string>, nameKey: string): boolean {
+  if (partners.has(nameKey)) return true;
+  if (!DUPLICATE_PREFIX.test(nameKey)) return false;
+  const bare = nameKey.replace(DUPLICATE_PREFIX, "");
+  if (bare === "") return false;
+  for (const k of partners) if (k.startsWith(bare)) return true;
   return false;
 }
 
@@ -367,9 +449,16 @@ export type BotStatus = {
   walk: string | null;
 
   offlineReason: string;
+
+  wb?: string | null;
+
+  panel?: { wbMode: "auto" | "left" | "right" | "off" | null; duelMode: "auto" | "on" | "off"; inDuel: boolean; spectating: boolean; pinnedTarget: string | null; home: boolean; tryName: string; duelScore?: { name: string; ours: number; theirs: number } | null };
   frozen: boolean;
   tick: number;
   stats: BotStats;
+
+  lowCpu?: boolean;
+  lag?: LagSummary;
 };
 
 type TwPlayerInfo = { local: number; client_id: number; team: number; score: number; latency: number };
@@ -453,6 +542,9 @@ const RECONNECT_MAX_MS = 30000;
 
 const KILL_COOLDOWN_TICKS = 10 * 50;
 
+const WB_LYING_TICKS = 25;
+const WB_KILL_COOLDOWN_TICKS = 2 * 50;
+
 const HELPED_LIMIT_TICKS = 30 * 50;
 
 const HELPER_RANGE_PX = 140;
@@ -472,7 +564,25 @@ const DEFAULT_CLIP_DIR = "runs/clips";
 const CLIP_KEEP = 24;
 const CLIP_KEEP_PER_KIND = 16;
 
-const LIVE_PLANNER_CFG: Record<string, unknown> = { thirdTeeExposure: 0, memoryTrust: 0.9 };
+export const LIVE_PLANNER_CFG: Record<string, unknown> = { thirdTeeExposure: 0, memoryTrust: 0.9, frozenThrow: 3 };
+
+export type DuelRow = { at: string; seconds: number; opponent: string; ours: number; theirs: number; by?: string };
+
+export function readDuelFile(file: string): DuelRow[] {
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((d): d is DuelRow => d !== null && typeof d === "object" && typeof (d as { opponent?: unknown }).opponent === "string" && typeof (d as { at?: unknown }).at === "string")
+      .reverse();
+  } catch {
+    return [];
+  }
+}
+
+export function bothBotsDuels(first: DuelRow[], firstName: string, second: DuelRow[], secondName: string): DuelRow[] {
+  return [...first.map((d) => ({ ...d, by: firstName })), ...second.map((d) => ({ ...d, by: secondName }))].sort((a, b) => (b.at < a.at ? -1 : b.at > a.at ? 1 : 0));
+}
 
 export type BotConfig = {
   host: string;
@@ -488,6 +598,8 @@ export type BotConfig = {
 
   settingsFile?: string;
 
+  lowCpu?: boolean;
+
   autoServer?: boolean;
 
   autoAvoidFile?: string;
@@ -496,8 +608,6 @@ export type BotConfig = {
 
   password?: string;
   skin?: string;
-  killDelayMs?: number;
-  mentionReply?: string;
   country?: number;
   colorBody?: number;
   colorFeet?: number;
@@ -536,6 +646,9 @@ export type BotStats = {
   hooksFired: number;
   disconnects: number;
   errors: number;
+
+  blocks: number;
+  blockedBy: number;
 };
 
 export type Travel = { start: Vec2 | null; end: Vec2 | null; distance: number };
@@ -554,7 +667,11 @@ export function firePressed(prev: PlayerInput, cur: PlayerInput): boolean {
 }
 
 export class DdnetBot {
-  readonly stats: BotStats = { ticks: 0, kills: 0, deaths: 0, selfKills: 0, clips: 0, hammerFires: 0, hooksFired: 0, disconnects: 0, errors: 0 };
+  readonly stats: BotStats = { ticks: 0, kills: 0, deaths: 0, selfKills: 0, clips: 0, hammerFires: 0, hooksFired: 0, disconnects: 0, errors: 0, blocks: 0, blockedBy: 0 };
+
+  private readonly lastTouch = new Map<number, { by: number; tick: number }>();
+  private readonly lastPosById = new Map<number, { x: number; y: number; tick: number }>();
+  private readonly thawTickById = new Map<number, number>();
   readonly travel: Travel = { start: null, end: null, distance: 0 };
 
   private readonly cfg: BotConfig;
@@ -602,6 +719,23 @@ export class DdnetBot {
 
   private readonly frozenSinceById = new Map<number, number>();
 
+  private readonly atUsById = new Map<number, number>();
+
+  private readonly atFriendById = new Map<number, number>();
+  private rescueWalkTick = -Infinity;
+  private rescueSaidTick = -Infinity;
+
+  private rescueId = -1;
+  private rescueHammerSince = -1;
+  private rescueHammerId = -1;
+  private readonly rescuePausedUntil = new Map<number, number>();
+
+  private pullSim: SimWorld | null = null;
+  private rescuePullId = -1;
+  private rescuePullSince = -1;
+  private rescuePullAt = -Infinity;
+  private readonly pullNone = new Map<number, { key: string; tick: number }>();
+
   private readonly lastInputById = new Map<
     number,
     { name: string; angle: number; attack: number; keys: number; at: number; firstSeen: number; changed: number; settleUntil: number }
@@ -623,13 +757,12 @@ export class DdnetBot {
     selfDeaths: number;
     last: Vec2 | null;
     waiting: boolean;
-    navOpts: { throughFreeze?: boolean };
+    navOpts: { throughFreeze?: boolean; crossings?: readonly Crossing[] };
   } | null = null;
 
   private readonly relations = {
     war: new Map<string, string>(),
     friend: new Map<string, string>(),
-    team: new Map<string, string>(),
     clanWar: new Map<string, string>(),
     clanFriend: new Map<string, string>(),
 
@@ -639,6 +772,23 @@ export class DdnetBot {
   private home: { tx: number; ty: number } | null = null;
 
   private homeMap = "?";
+
+  private wbDef: WbDef | null = null;
+  private wbMode: "auto" | "left" | "right" | "off" = "auto";
+  private readonly wbChooser = new WbSideChooser();
+  private wbCounts = { left: 0, right: 0 };
+  private wbWalk = false;
+
+  private wbWalkFails = 0;
+  private wbPauses = 0;
+  private wbPausedUntilMs = 0;
+
+  private routeKillTick = -1_000_000;
+
+  private duelMode: "auto" | "on" | "off" = "auto";
+  private duelSeen = false;
+  private duelForSince = -1;
+  private duelAgainstSince = -1;
   private idleSinceTick = -1;
 
   private travelSinceTick = -1000;
@@ -665,19 +815,38 @@ export class DdnetBot {
   private lastClipTick = -Infinity;
   private framesSinceScan = 0;
   private lastKillTick = -Infinity;
-  private pendingKill: { atTick: number; reason: string } | null = null;
   private lastEmoteMs = 0;
   private lastAcceptMs = 0;
+
+  private duelAnsweredMs = 0;
+
+  private armAcceptLine = "";
+  private armAcceptUntil = 0;
+
+  private duelChallenger = "";
   private readonly lastSeenDist = new Map<number, number>();
   private readonly lastReplyMs = new Map<number, number>();
   private readonly replyTimers = new Set<NodeJS.Timeout>();
   private wanderDir = 0;
   private wanderUntilTick = 0;
   private wanderAim = 0;
+
+  private wanderLook = 0;
   private wanderJumpUntilTick = 0;
   private wanderHookUntilTick = 0;
   private readonly wanderRng = new Rng(0x5eed ^ Date.now());
   private planner: Planner | null = null;
+
+  private lowCpu = false;
+
+  private readonly lag = new LagWatch();
+
+  private snapQueued = false;
+  private snapArrived = 0;
+  private snapTick: number | undefined = undefined;
+  private snapFirstRead = 0;
+
+  private reachLeft = -1;
   private planSim: SimWorld | null = null;
 
   private sealSim: SimWorld | null = null;
@@ -686,6 +855,9 @@ export class DdnetBot {
   private sealAnswers = new Map<number, { tick: number; sealed: boolean }>();
 
   private reachAnswers = new Map<number, { tick: number; from: number; to: number; ok: boolean }>();
+
+  private readonly reachWanted = new Set<number>();
+  private reachWantTick = -1;
 
   private readonly planOthersIn = new Set<number>();
   private planTargetId = -1;
@@ -701,6 +873,7 @@ export class DdnetBot {
     }
 
     Object.assign(this.baseCfg, LIVE_PLANNER_CFG, cfg.plannerCfg ?? {});
+    Object.assign(this.startCfg, this.baseCfg);
     if (cfg.policy) {
       const { inputs, outputs } = cfg.policy.shape;
       if (inputs !== OBS_SIZE || outputs !== ACTION_SIZE) {
@@ -708,15 +881,50 @@ export class DdnetBot {
       }
     }
     this.cfg = { ...cfg, plannerCfg: { ...this.baseCfg } };
+    this.lowCpu = cfg.lowCpu === true;
 
     this.world = new LiveWorld(new Collision(1, 1, new Uint8Array(1)));
     this.loadRelations();
+
+    this.autoChat = new AutoChat(join(dirname(this.cfg.relationsFile ?? RELATIONS_FILE), "autochat.json"));
+  }
+
+  private readonly autoChat: AutoChat;
+  autoChatInfo(): AutoChatConfig {
+    return this.autoChat.config();
+  }
+  setAutoChat(raw: unknown): AutoChatConfig {
+    const cfg = this.autoChat.set(raw);
+    this.log(`auto chat: every ${cfg.periodic.on ? `${cfg.periodic.everySec}s` : "off"}, name ${cfg.mention.on ? "on" : "off"}, ${cfg.keywords.filter((k) => k.on).length} keyword rule(s)`);
+    return cfg;
+  }
+
+  private autoSay(text: string, line: string | null = null): void {
+    const ok = this.say(text);
+    this.autoChat.sent(text, ok);
+    if (ok) this.emit("event", `auto chat: ${text}`);
+    if (line === null || !/^\/accept\b/.test(text.trim().toLowerCase())) return;
+    if (ok) {
+      this.answeredInvitation(line);
+      this.armAcceptUntil = 0;
+    } else {
+      this.armAcceptLine = line;
+      this.armAcceptUntil = Date.now() + AUTO_ACCEPT_HOLD_MS;
+    }
+  }
+
+  private answeredInvitation(line: string): void {
+    if (!/\/accept/i.test(line)) return;
+    this.duelAnsweredMs = Date.now();
+    const m = /^\s*(.+?)\s+(?:challenged|invited|invites|challenges|вызвал|вызывает|пригласил|приглашает)(?![\p{L}])/iu.exec(line) ?? /(?<![\p{L}\p{N}_])(?:from|от)\s+(\S+)/iu.exec(line);
+    this.duelChallenger = m === null ? "" : m[1].trim().toLowerCase().replace(/[\s,.!:;]+$/u, "");
   }
 
   start(): Promise<void> {
 
     if (!patchHuffman()) this.log("could not bound the huffman decoder; a malformed packet may still be fatal");
     if (!patchRedirect()) this.log("could not teach the network library server redirects");
+    if (!patchSnapshotDecoder()) this.log("could not replace the network library's snapshot decoder; a slow PC may fall behind for good");
     this.netGuard ??= installNetworkGuard((message, dropped) => {
       this.stats.errors++;
       this.emit("event", `dropped an undecodable packet (${dropped} so far): ${message}`);
@@ -758,7 +966,7 @@ export class DdnetBot {
 
       void client.Disconnect().catch(() => {});
     });
-    client.on("snapshot", () => this.onSnapshot());
+    client.on("snapshot", () => this.queueSnapshot());
     client.on("kill", (kill) => this.onKill(kill));
     client.on("message", (msg) => this.onMessage(msg));
     client.on("map_change", (change) => {
@@ -782,6 +990,9 @@ export class DdnetBot {
         }
       }
 
+      this.wbDef = null;
+      this.wbChooser.reset();
+
       this.navPending = this.cfg.goto !== undefined && this.cfg.goto.trim().length > 0;
       this.log(`map change: ${change.map_name}`);
     });
@@ -792,6 +1003,8 @@ export class DdnetBot {
   }
 
   async stop(): Promise<void> {
+
+    this.endDuelScore();
     this.stopping = true;
     if (this.serverWatch !== null) clearInterval(this.serverWatch);
     this.serverWatch = null;
@@ -825,7 +1038,7 @@ export class DdnetBot {
     const held = this.world.getTee(this.ownId ?? -1)?.activeWeapon;
     const weapon = held === undefined ? "?" : held === WEAPON_HAMMER ? "hammer" : `weapon${held}`;
 
-    return `ticks=${s.ticks} brain=${this.brainName()} weapon=${weapon} try=${this.tryName} kills=${s.kills} deaths=${s.deaths} selfKills=${s.selfKills} clips=${s.clips} hammerFires=${s.hammerFires} hooksFired=${s.hooksFired} disconnects=${s.disconnects} errors=${s.errors}`;
+    return `ticks=${s.ticks} brain=${this.brainName()} weapon=${weapon} try=${this.tryName} kills=${s.kills} deaths=${s.deaths} selfKills=${s.selfKills} clips=${s.clips} hammerFires=${s.hammerFires} hooksFired=${s.hooksFired} blocks=${s.blocks} blockedBy=${s.blockedBy} disconnects=${s.disconnects} errors=${s.errors}`;
   }
 
   private sink: ((line: BotLine) => void) | null = null;
@@ -932,19 +1145,34 @@ export class DdnetBot {
       mode: this.mode,
       server: `${this.cfg.host}:${this.cfg.port}`,
       name: this.cfg.name,
-      targetName: this.cfg.targetName ?? (this.targetId >= 0 ? this.nameOfLive(this.targetId) : null),
+      targetName: this.targetId >= 0 ? this.nameOfLive(this.targetId) : null,
       targetDist: self && target ? Math.round(vdistance(self.pos, target.pos)) : null,
       walk: this.nav === null ? null : this.follow !== null && this.follow.waiting ? `goto ${this.follow.name.slice(0, 12)} …` : this.nav.brief(self ?? null, this.follow?.name.slice(0, 12)),
       offlineReason: this.phase === "online" ? "" : this.lastDisconnect,
+      wb: this.wbHolding() !== null && this.wbChooser.side !== null ? `WB ${this.wbChooser.side}` : null,
+      panel: {
+        wbMode: this.wbDef === null ? null : this.wbMode,
+        duelMode: this.duelMode,
+        inDuel: this.duelNow(),
+        spectating: this.wantSpectate,
+        pinnedTarget: this.cfg.targetName ?? null,
+        home: this.home !== null,
+        tryName: this.tryName,
+        duelScore: this.duelScore === null ? null : { name: this.duelScore.name, ours: this.duelScore.ours, theirs: this.duelScore.theirs },
+      },
       frozen: self?.frozen ?? false,
       tick: this.world.tick,
       stats: this.stats,
+      lowCpu: this.lowCpu,
+      lag: this.lag.summary(),
     };
   }
 
   private tryName = "off";
 
   private readonly baseCfg: Record<string, unknown> = {};
+
+  private readonly startCfg: Record<string, unknown> = {};
 
   private resetControllers(): void {
     this.planner?.reset();
@@ -956,11 +1184,13 @@ export class DdnetBot {
     const text = msg.message.toLowerCase();
     const invited = /\/accept|accept|challeng|duel|дуэл|вызов|вызвал/.test(text);
 
-    const already = /accepted|started|ended|won|lost|declin|отклон|начал|закончил/.test(text);
+    const already = /(?<![\p{L}\p{N}_)/-])(?:accepted|started|ended|won|lost|declined|declines|declining)(?![\p{L}\p{N}_])|отклонил|начал|закончил|проиграл|победил|выиграл|принял|окончен|завершен(?:а|о)?(?!\p{L})/u.test(text);
     if (!invited || already) return;
     const now = Date.now();
     if (now - this.lastAcceptMs < DUEL_ACCEPT_COOLDOWN_MS) return;
     this.lastAcceptMs = now;
+
+    this.answeredInvitation(msg.message);
     if (this.say("/accept")) this.emit("event", `duel invitation from ${who}: answered /accept`);
     else this.emit("event", `duel invitation from ${who}: could not answer, chat cooldown`);
   }
@@ -987,6 +1217,7 @@ export class DdnetBot {
 
     if (this.world.tick > 0) this.log(`server game tick restarted (${this.world.tick} -> ${newTick}); clearing tick-keyed state`);
     this.lastKillTick = -Infinity;
+    this.routeKillTick = -1_000_000;
     this.sent = [];
     this.wanderUntilTick = 0;
     this.wanderJumpUntilTick = 0;
@@ -1004,6 +1235,18 @@ export class DdnetBot {
     if (this.trek !== null) this.endTrek();
     this.frozenSinceById.clear();
     this.lastInputById.clear();
+    this.atUsById.clear();
+    this.atFriendById.clear();
+    this.lastTouch.clear();
+    this.thawTickById.clear();
+    this.lastPosById.clear();
+    this.rescueWalkTick = -Infinity;
+    this.rescueSaidTick = -Infinity;
+    this.rescueHammerSince = -1;
+    this.rescuePausedUntil.clear();
+    this.rescuePullSince = -1;
+    this.rescuePullAt = -Infinity;
+    this.pullNone.clear();
   }
 
   private nameOfLive(id: number): string {
@@ -1026,7 +1269,13 @@ export class DdnetBot {
     if (trimmed.length === 0) return "";
 
     if (!COMMAND_PREFIXES.includes(trimmed[0])) {
-      return this.say(trimmed) ? "" : "not sent: chat cooldown, try again in a moment";
+      if (!this.say(trimmed)) return "not sent: chat cooldown, try again in a moment";
+
+      if (/^\/accept\b/i.test(trimmed)) {
+        this.duelAnsweredMs = Date.now();
+        this.duelChallenger = "";
+      }
+      return "";
     }
     const [cmd, ...rest] = trimmed.slice(1).split(/\s+/);
     const arg = rest.join(" ");
@@ -1036,21 +1285,16 @@ export class DdnetBot {
           "  type anything          say it in the game chat, as the bot",
           "",
           "  !stop / !go            stop playing and stand still / resume",
-          "  !war [name|off]        fight them on sight  ·  !friend [name|off]  never touch them",
+          "  !war [name|off]        fight them on sight  ·  !friend [name|off]  never touch them, defend them, hammer them out of the freeze",
           "  !ignore [name|off]     never touch them, never answer them",
           "  !clanwar [clan|off]    the same by clan tag  ·  !clanfriend [clan|off]",
-          "  /sethome [x y]         save the home tile",
-          "  /home                  walk back to the saved home",
-          "  /delhome               clear HOME and stop home-return behavior",
-          "  .team [name|off]       whitelist a teammate; never target them",
+          "  !home [x y|off]        mark a spot to return to when there is nobody to fight",
+          "  !wb [off|left|right|auto]  hold the wayblock (Copy Love Box): auto takes the emptier side and keeps it",
+          "  !duel [on|off|auto]    1 on 1: no WB, no walks; auto turns it on when a duel it accepted starts",
+          "  !style default|wb|duel the window's three ways to play",
           "  !clip [note]           save the last 30s to a file for review",
           "  !log on|off            show every debug line, or just the status bar",
           "  !mode <name>           fight (default) | passive (never engage) | hold",
-          "  !name <nick>           change the nick live",
-          "  !clan <tag|->          change or clear the clan live",
-          "  !skin <name>           change the skin live",
-          "  !killdelay <seconds>   wait before automatic respawn-kill (0 = now)",
-          "  !reply <text|off>      reply when the bot's nick is mentioned; {name}/{text} work",
           "  !try <name>|off        switch a candidate planner setting on mid-game",
           "  !target <nick>         fight only this player, '!target -' to clear",
           "  !brain <name>          planner | net | scripted, swapped live",
@@ -1066,6 +1310,7 @@ export class DdnetBot {
           "  !votes / !vote <text>  list the server's votes / call the one whose name matches",
           "  !spec / !join          go to the spectators / back into the game",
           "  !lang ru|en            the language of the console and the bot's window",
+          "  !low on|off            the mode for a weak PC: a shorter search, a new plan every 2 snapshots",
           "  !quit                  disconnect and exit",
           "",
           "  '?' works too. Neither prefix ever reaches the server.",
@@ -1079,42 +1324,6 @@ export class DdnetBot {
         this.acting = want !== "hold";
         if (want !== "fight") this.targetId = -1;
         return `${gave}mode: ${want}`;
-      }
-      case "name": {
-        const value = arg.trim();
-        if (value === "") return "!name <nick>";
-        if ([...value].length > 15) return "name is limited to 15 characters";
-        this.cfg.name = value;
-        this.sendIdentity();
-        return `name: ${value}`;
-      }
-      case "clan": {
-        const value = arg.trim() === "-" ? "" : arg.trim();
-        if ([...value].length > 11) return "clan is limited to 11 characters";
-        this.cfg.clan = value;
-        this.sendIdentity();
-        return `clan: ${value === "" ? "off" : value}`;
-      }
-      case "skin": {
-        const value = arg.trim();
-        if (value === "") return "!skin <skin>";
-        if ([...value].length > 23) return "skin is limited to 23 characters";
-        this.cfg.skin = value;
-        this.sendIdentity();
-        return `skin: ${value}`;
-      }
-      case "killdelay": {
-        const value = Number(arg.trim());
-        if (!Number.isFinite(value) || value < 0 || value > 60) return "!killdelay 0..60 (seconds)";
-        this.cfg.killDelayMs = Math.round(value * 10) / 10 * 1000;
-        this.pendingKill = null;
-        return `automatic kill delay: ${this.cfg.killDelayMs / 1000}s`;
-      }
-      case "reply": {
-        const value = arg.trim() === "-" || arg.trim().toLowerCase() === "off" ? "" : arg.trim();
-        if ([...value].length > 120) return "reply is limited to 120 characters";
-        this.cfg.mentionReply = value;
-        return value === "" ? "mention reply: off" : `mention reply: ${value}`;
       }
       case "goto":
         return this.gotoCommand(arg);
@@ -1191,9 +1400,8 @@ export class DdnetBot {
         return "killed, respawning";
       }
       case "target": {
-        if (arg === "" || arg === "-" || arg.toLowerCase() === "off") {
+        if (arg === "" || arg === "-") {
           this.cfg.targetName = undefined;
-          this.targetId = -1;
           return "target cleared, back to picking automatically";
         }
 
@@ -1203,10 +1411,6 @@ export class DdnetBot {
         if (hits.length > 1) return `target: '${arg}' matches ${hits.length} players: ${hits.join(", ")} -- be more specific`;
         const name = hits.length === 1 ? hits[0] : arg;
         this.cfg.targetName = name;
-        this.mode = "fight";
-        this.acting = true;
-        this.endTrek();
-        this.dropNav("?target");
         return hits.length === 1 ? `target set to '${name}'` : `target set to '${name}' (nobody by that name is on the server now)`;
       }
       case "brain": {
@@ -1258,6 +1462,16 @@ export class DdnetBot {
         this.saveLang(want);
         return want === "ru" ? "язык: русский" : "language: English";
       }
+      case "low": {
+        const want = arg.trim().toLowerCase();
+        const state = (on: boolean): string =>
+          on ? `mode for a weak PC: on (search ${LOW_CPU.budgetMs} ms, a new plan every ${LOW_CPU.commit} snapshots, fewer route checks)` : "mode for a weak PC: off (the full search)";
+        if (want === "") return `${state(this.lowCpu)}; !low on | off`;
+        if (want !== "on" && want !== "off") return "!low on | off";
+        this.setLowCpu(want === "on");
+        this.saveLowCpu(this.lowCpu);
+        return state(this.lowCpu);
+      }
       case "log": {
 
         const want = arg.toLowerCase();
@@ -1269,16 +1483,19 @@ export class DdnetBot {
         return this.relationCommand("war", arg, "war");
       case "friend":
         return this.relationCommand("friend", arg, "friends");
-      case "team":
-        return this.relationCommand("team", arg, "team whitelist");
       case "ignore":
         return this.relationCommand("ignore", arg, "ignored");
       case "clanwar":
         return this.relationCommand("clanWar", arg, "clan war");
       case "clanfriend":
         return this.relationCommand("clanFriend", arg, "friendly clans");
-      case "sethome": {
+      case "home": {
         const self = this.ownId >= 0 ? this.world.getTee(this.ownId) : undefined;
+        if (arg.toLowerCase() === "off") {
+          this.home = null;
+          if (this.wbDef !== null && this.wbMode !== "off") return "home cleared: on this map it holds the WB when there is nobody to fight (!wb off for neither)";
+          return "home cleared: it will stay wherever the fight is";
+        }
         const parts = arg.split(/[\s,]+/).filter((x) => x !== "");
         if (parts.length === 2 && Number.isFinite(Number(parts[0])) && Number.isFinite(Number(parts[1]))) {
           this.home = { tx: Math.trunc(Number(parts[0])), ty: Math.trunc(Number(parts[1])) };
@@ -1288,23 +1505,35 @@ export class DdnetBot {
           this.home = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
           this.homeMap = this.mapName();
         } else {
-          return "/sethome            mark where you are standing\n/sethome <x> <y>    mark a tile";
+          return "!home            mark where you are standing\n!home <x> <y>    mark a tile\n!home off        forget it";
         }
-        return `home set to tile (${this.home.tx},${this.home.ty})`;
+        return `home set to tile (${this.home.tx},${this.home.ty}); it walks back there after ${GO_HOME_AFTER_TICKS / 50}s with nobody to fight${this.wbDef !== null && this.wbMode !== "off" ? " (and does not hold the WB while it is set)" : ""}`;
       }
-      case "home": {
-        if (arg.toLowerCase() === "off") {
-          this.home = null;
-          return "home cleared";
+      case "wb":
+        return this.wbCommand(arg);
+      case "duel": {
+        const want = arg.trim().toLowerCase();
+        if (want === "") return `duel: ${this.duelMode}${this.duelNow() ? ", in one now" : this.duelSeen ? ", one is on screen (ignored: off)" : ""}`;
+        if (want !== "on" && want !== "off" && want !== "auto") return "!duel on | off | auto";
+        this.duelMode = want;
+        const gave = want === "on" && this.nav !== null ? `${this.cancelNav("duel on")}; ` : "";
+        if (want === "on" && this.trek !== null) this.endTrek();
+        return want === "on" ? `${gave}duel: on -- fights whoever is there, no WB, no walks` : want === "off" ? "duel: off -- plays as usual even in a duel" : "duel: auto -- on by itself once a duel it accepted starts";
+      }
+
+      case "style": {
+        const want = arg.trim().toLowerCase();
+        if (want === "") return `style: ${this.duelNow() ? "duel" : this.wbDef !== null && this.wbMode !== "off" ? "wb" : "default"}`;
+        if (want === "duel") return this.handleConsole("!duel on");
+        if (want === "wb") {
+          this.duelMode = "auto";
+          return this.wbCommand(this.wbMode === "left" || this.wbMode === "right" ? this.wbMode : "auto");
         }
-        if (this.home === null) return "home is not set; use /sethome first";
-        return this.gotoCommand(`${this.home.tx} ${this.home.ty}`, { throughFreeze: false });
-      }
-      case "delhome": {
-        this.home = null;
-        this.homeMap = "?";
-        const dropped = this.dropNav("/delhome");
-        return `${dropped}home cleared; normal behavior restored`;
+        if (want === "default") {
+          this.duelMode = "auto";
+          return this.wbCommand("off");
+        }
+        return "!style default | wb | duel";
       }
       case "clip": {
 
@@ -1319,7 +1548,7 @@ export class DdnetBot {
         const self = this.ownId >= 0 ? this.world.getTee(this.ownId) : undefined;
         const at = self === undefined ? "" : `tile (${Math.trunc(self.pos.x / 32)},${Math.trunc(self.pos.y / 32)}), `;
         const walk = this.nav === null ? "" : `, goto: ${this.nav.progress(self ?? null)}`;
-        return `${st.phase}, ${at}${st.acting ? "playing" : "stopped"}, ${st.frozen ? "frozen" : "free"}, target ${st.targetName ?? "none"}${st.targetDist === null ? "" : ` at ${st.targetDist}px`}, tick ${st.tick}${walk}`;
+        return `${st.phase}, ${at}${st.acting ? "playing" : "stopped"}, ${st.frozen ? "frozen" : "free"}, target ${st.targetName ?? "none"}${st.targetDist === null ? "" : ` at ${st.targetDist}px`}${st.wb ? `, ${st.wb}` : ""}, tick ${st.tick}${walk}`;
       }
       case "emote": {
         const id = EMOTICON_BY_NAME[arg.toLowerCase()];
@@ -1338,7 +1567,35 @@ export class DdnetBot {
     }
   }
 
-  private gotoCommand(arg: string, navOpts: { throughFreeze?: boolean } = {}): string {
+  private wbCommand(arg: string): string {
+    const want = arg.trim().toLowerCase();
+    if (want === "") {
+      if (this.wbDef === null) return `WB: '${this.mapName()}' has none -- ${WAYBLOCK_NAMES} do`;
+      const held = this.wbHolding();
+      const side = this.wbChooser.side;
+      const pausedMin = Math.ceil((this.wbPausedUntilMs - Date.now()) / 60_000);
+      const why =
+        this.wbMode === "off" ? "off" : this.home !== null ? "not held while !home is set (!home off)" : pausedMin > 0 ? `${this.wbMode}, left alone for ${pausedMin} more min after dying on the way in (!wb ${this.wbMode} to go now)` : held === null ? `${this.wbMode}, not held in mode ${this.mode}` : `${this.wbMode}, holding the ${side ?? "?"}`;
+      return `WB: ${why}; playing: ${this.wbCounts.left} on the left, ${this.wbCounts.right} on the right`;
+    }
+    const mode = want === "on" ? "auto" : want;
+    if (mode !== "off" && mode !== "left" && mode !== "right" && mode !== "auto") return "!wb off | left | right | auto";
+    this.wbMode = mode;
+
+    if (mode !== "off") {
+      this.wbPausedUntilMs = 0;
+      this.wbWalkFails = 0;
+    }
+    let gave = "";
+
+    if (mode === "off" && this.wbWalk && this.nav !== null) gave = `${this.cancelNav("the WB is off")}; `;
+    if (this.wbDef === null) return `${gave}WB: ${mode} (this map has none; it applies on ${WAYBLOCK_NAMES})`;
+    if (mode === "off") return `${gave}WB: off -- it stays wherever the fight is`;
+    const home = this.home !== null ? " (not held while !home is set: !home off)" : "";
+    return mode === "auto" ? `WB: auto -- the side with fewer players playing, the one it stands on in a tie, then held${home}` : `WB: the ${mode} side${home}`;
+  }
+
+  private gotoCommand(arg: string, navOpts: { throughFreeze?: boolean; crossings?: readonly Crossing[] } = {}): string {
     const text = arg.trim();
 
     const named = text.startsWith("@");
@@ -1395,7 +1652,7 @@ export class DdnetBot {
     return this.startNav([tileGoal(col, tx, ty)], navOpts);
   }
 
-  private gotoPlayer(text: string, self: TeeState, navOpts: { throughFreeze?: boolean }): string {
+  private gotoPlayer(text: string, self: TeeState, navOpts: { throughFreeze?: boolean; crossings?: readonly Crossing[] }): string {
     const want = text.trim();
     if (want === "") return `whose name? ${GOTO_USAGE}`;
     const cards = (this.client?.SnapshotUnpacker?.AllObjClientInfo ?? []).map((c) => ({ id: c.id, name: c.name ?? "" }));
@@ -1437,10 +1694,9 @@ export class DdnetBot {
     const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === id);
     const nameKey = (card?.name ?? name).trim().toLowerCase();
     const clanKey = (card?.clan ?? "").trim().toLowerCase();
-    if (listed(this.relations.team, nameKey)) return `${name} is on the team whitelist, never touched`;
-    if (listed(this.relations.friend, nameKey) || listed(this.relations.clanFriend, clanKey)) return `${name} is a friend, never touched on the way or after`;
-    if (listed(this.relations.ignore, nameKey)) return `${name} is ignored, never touched on the way or after`;
-    if (listed(this.relations.war, nameKey) || listed(this.relations.clanWar, clanKey)) return `not touched on the way; after arriving ${name} is fought, being on the war list`;
+    if (this.onList("friend", nameKey, id) || this.clanFriend(clanKey, id)) return `${name} is a friend, never touched on the way or after`;
+    if (this.onList("ignore", nameKey, id)) return `${name} is ignored, never touched on the way or after`;
+    if (this.onList("war", nameKey, id) || listed(this.relations.clanWar, clanKey)) return `not touched on the way; after arriving ${name} is fought, being on the war list`;
     const tee = this.world.getTee(id);
     if (tee !== undefined && this.afk(tee)) return `not touched on the way, nor after while ${name} is away from the keyboard`;
     return `not touched on the way; after arriving it is back to fight, and ${name} is a target there like anybody else who is playing`;
@@ -1549,7 +1805,7 @@ export class DdnetBot {
       reroute = true;
     }
     if (reroute && goal !== null) {
-      this.nav = new Navigator(this.world.collision, [this.followGoal(goal, f.name)], f.navOpts);
+      this.nav = new Navigator(this.world.collision, [this.followGoal(goal, f.name)], this.navOptsFor(f.navOpts));
       f.tx = goal.tx;
       f.ty = goal.ty;
       f.routedTick = tick;
@@ -1559,7 +1815,7 @@ export class DdnetBot {
     return this.nav === null || this.nav.done ? "wait" : "go";
   }
 
-  private startNav(goals: NavGoal[], navOpts: { throughFreeze?: boolean } = {}): string {
+  private startNav(goals: NavGoal[], navOpts: { throughFreeze?: boolean; crossings?: readonly Crossing[] } = {}): string {
     if (this.nav !== null) this.emit("event", "goto: replaced by a new destination");
 
     if (this.mode !== "goto") this.navReturnMode = this.mode;
@@ -1567,7 +1823,8 @@ export class DdnetBot {
     this.seekingGame = false;
 
     this.follow = null;
-    this.nav = new Navigator(this.world.collision, goals, navOpts);
+    this.wbWalk = false;
+    this.nav = new Navigator(this.world.collision, goals, this.navOptsFor(navOpts));
     this.mode = "goto";
     this.acting = true;
     this.targetId = -1;
@@ -1575,10 +1832,17 @@ export class DdnetBot {
     return `goto: ${goals[0].label}${rest}`;
   }
 
+  private navOptsFor(navOpts: { throughFreeze?: boolean; crossings?: readonly Crossing[] }): { throughFreeze?: boolean; crossings?: readonly Crossing[] } {
+    if (navOpts.crossings !== undefined || this.wbDef === null) return navOpts;
+    return { ...navOpts, crossings: this.wbDef.crossings };
+  }
+
   private endNav(): void {
     this.nav = null;
     this.follow = null;
+    this.rescueId = -1;
     this.seekingGame = false;
+    this.wbWalk = false;
     this.mode = this.navReturnMode;
     this.acting = this.mode !== "hold";
     if (this.mode !== "fight") this.targetId = -1;
@@ -1596,6 +1860,8 @@ export class DdnetBot {
     this.nav.cancel(`dropped by ${by}`);
     this.nav = null;
     this.follow = null;
+    this.rescueId = -1;
+    this.wbWalk = false;
     return `goto: dropped by ${by}. `;
   }
 
@@ -1616,12 +1882,15 @@ export class DdnetBot {
 
     const nav = this.nav;
     if (nav === null) return;
+    nav.crossBudgetMs = this.navBudgetMs;
     const want = nav.step(
       self,
       this.world.tick,
       this.world.allTees().filter((t) => t.id !== self.id && t.alive),
+      this.lagTicks(),
     );
-    const input = this.guard(self, want);
+
+    const input = nav.crossing || nav.plannedFreeze ? want : this.guard(self, want);
 
     if (input !== want) nav.vetoed();
 
@@ -1631,7 +1900,17 @@ export class DdnetBot {
     }
 
     if (nav.takeKill()) {
-      if (!this.requestAutoKill(client, "goto: the way there starts with a respawn")) {
+      if (this.world.tick - this.lastKillTick >= KILL_COOLDOWN_TICKS) {
+        this.lastKillTick = this.world.tick;
+        this.routeKillTick = this.world.tick;
+        this.stats.selfKills++;
+        this.emit("event", "goto: the way there starts with a respawn -> /kill");
+        try {
+          client.game.Kill();
+        } catch {
+
+        }
+      } else {
         this.emit("event", "goto: the way there starts with a respawn, but /kill is on cooldown");
       }
     }
@@ -1678,6 +1957,13 @@ export class DdnetBot {
     this.lastPos = null;
     this.wasAlive = false;
     this.wantSpectate = false;
+
+    this.endDuelScore();
+    this.duelSeen = false;
+    this.duelForSince = -1;
+    this.duelAnsweredMs = 0;
+    this.duelChallenger = "";
+    this.armAcceptUntil = 0;
     this.navPending = this.cfg.goto !== undefined && this.cfg.goto.trim().length > 0;
     client.movement.FlagPlaying(true);
     client.movement.SetAim(0, -1);
@@ -1692,6 +1978,7 @@ export class DdnetBot {
   }
 
   private onDisconnect(reason: string, fromServer: boolean): void {
+    this.endDuelScore();
 
     for (const t of this.replyTimers) clearTimeout(t);
     this.replyTimers.clear();
@@ -1732,6 +2019,9 @@ export class DdnetBot {
   }
 
   private onKill(kill: TwKill): void {
+
+    this.lastTouch.delete(kill.victim_id);
+    this.thawTickById.delete(kill.victim_id);
     if (this.ownId < 0) return;
 
     const seen = this.lastInputById.get(kill.victim_id);
@@ -1743,6 +2033,8 @@ export class DdnetBot {
     }
     if (kill.victim_id === this.ownId) {
       this.stats.deaths++;
+
+      if (this.wbWalk && this.world.tick - this.routeKillTick > 50) this.noteWbWalkDeath();
 
       this.wasAlive = false;
       this.lastPos = null;
@@ -1773,6 +2065,8 @@ export class DdnetBot {
 
     if (msg.client_id < 0) {
       this.emit("chat", msg.message, t("сервер"), true);
+      const answer = this.autoChat.onChat({ from: "", text: msg.message, server: true, me: this.cfg.name });
+      if (answer !== null) this.autoSay(answer, msg.message);
       return;
     }
     if (msg.client_id === this.ownId) {
@@ -1791,9 +2085,10 @@ export class DdnetBot {
     if (whisper) this.emit("whisper", msg.message, who);
     else this.emit("chat", `${msg.team === CHAT_TEAM ? "(team) " : ""}${mentioned ? "*" : ""}${msg.message}`, who);
 
-    if (listed(this.relations.ignore, who.trim().toLowerCase())) return;
+    if (this.onList("ignore", who.trim().toLowerCase(), msg.client_id)) return;
+    const answer = this.autoChat.onChat({ from: who, text: msg.message, server: false, me: this.cfg.name });
+    if (answer !== null) this.autoSay(answer, whisper ? msg.message : null);
     if (whisper) this.maybeAcceptDuel(msg, who);
-    this.maybeAnswerMention(msg, who, mentioned);
     this.maybeAnswerAccusation(msg);
     if (!this.cfg.chat) return;
     const text = msg.message.trim().toLowerCase();
@@ -1835,18 +2130,6 @@ export class DdnetBot {
     }
   }
 
-  private maybeAnswerMention(msg: TwMessage, who: string, mentioned: boolean): void {
-    const template = this.cfg.mentionReply?.trim() ?? "";
-    if (!mentioned || template === "" || msg.team === CHAT_WHISPER_RECV) return;
-    const text = template.replace(/\{name\}/gi, who).replace(/\{text\}/gi, msg.message.trim());
-    const delay = 350 + Math.floor(this.wanderRng.nextFloat() * 650);
-    const timer = setTimeout(() => {
-      this.replyTimers.delete(timer);
-      if (!this.stopping) this.say(text);
-    }, delay);
-    this.replyTimers.add(timer);
-  }
-
   private say(text: string): boolean {
     const now = Date.now();
     if (now - this.lastChatMs < CHAT_MIN_INTERVAL_MS) return false;
@@ -1871,6 +2154,17 @@ export class DdnetBot {
     }
     this.world.setCollision(collision);
     this.collisionReady = true;
+    const hadWb = this.wbDef;
+    this.wbDef = wayblockFor(this.mapName(), collision);
+
+    this.wbWalkFails = 0;
+    this.wbPauses = 0;
+    this.wbPausedUntilMs = 0;
+    if (this.wbDef === null && hadWb === null && wayblockFor(this.mapName()) !== null) {
+      this.emit("event", `WB: '${this.mapName()}' here is another version of the map the WB was measured on (its size, a spot or the tube's rope anchors differ); not holding it`);
+    } else if (this.wbDef !== null && hadWb !== this.wbDef) {
+      this.emit("event", `WB: this map has one; ${this.wbMode === "off" ? "not holding it (!wb off)" : this.home !== null ? "not holding it while !home is set" : "holding it when there is nobody to fight (!wb off to stop)"}`);
+    }
 
     this.clipRing.clear();
     this.clipMapSet = false;
@@ -1891,11 +2185,65 @@ export class DdnetBot {
     );
   }
 
-  private onSnapshot(): void {
+  private queueSnapshot(): void {
+    const tick = this.client?.currentSnapshotGameTick;
+    this.snapTick = typeof tick === "number" ? tick : undefined;
+    if (this.snapArrived === 0) this.snapFirstRead = performance.now();
+    this.snapArrived++;
+    if (this.snapQueued) return;
+    this.snapQueued = true;
+    setImmediate(() => {
+      this.snapQueued = false;
+      const arrived = this.snapArrived;
+      const firstRead = this.snapFirstRead;
+      this.snapArrived = 0;
+      if (this.stopping || this.client === null) return;
+      const t0 = performance.now();
+      this.onSnapshot({ tick: this.snapTick });
+      const line = this.lag.note(firstRead, arrived, t0, performance.now());
+      if (line !== null) this.log(line);
+    });
+  }
+
+  private plannerCfgNow(): PlannerConfig {
+    const base: PlannerConfig = { budgetMs: LIVE_BUDGET_MS, explain: true, ...this.cfg.plannerCfg };
+    if (!this.lowCpu) return base;
+    const budget = base.budgetMs ?? LIVE_BUDGET_MS;
+    return {
+      ...base,
+      budgetMs: budget > 0 ? Math.min(budget, LOW_CPU.budgetMs) : LOW_CPU.budgetMs,
+      hardMs: base.hardMs !== undefined && base.hardMs > 0 ? Math.min(base.hardMs, LOW_CPU.hardMs) : LOW_CPU.hardMs,
+      commitDecisions: Math.max(base.commitDecisions ?? 1, LOW_CPU.commit),
+      explain: false,
+
+      shieldCadence: true,
+    };
+  }
+
+  setLowCpu(on: boolean): void {
+    if (this.lowCpu === on) return;
+    this.lowCpu = on;
+    this.planner = null;
+    if (this.nav !== null) this.nav.crossBudgetMs = this.navBudgetMs;
+  }
+
+  private get navBudgetMs(): number {
+    return this.lowCpu ? LOW_CPU.navMs : 0;
+  }
+  private get reachBudget(): number {
+    return this.lowCpu ? LOW_CPU.reachChecks : -1;
+  }
+
+  get lowCpuOn(): boolean {
+    return this.lowCpu;
+  }
+
+  private onSnapshot(saved?: { tick: number | undefined }): void {
     const client = this.client;
     if (!client) return;
     try {
       this.stats.ticks++;
+      this.reachLeft = this.reachBudget;
       if (!this.collisionReady) this.refreshCollision();
 
       const snap = client.SnapshotUnpacker;
@@ -1905,11 +2253,17 @@ export class DdnetBot {
         return;
       }
       this.ownId = ownId;
-      const tick = typeof client.currentSnapshotGameTick === "number" ? client.currentSnapshotGameTick : undefined;
+
+      const autoLine = this.autoChat.due(this.cfg.name);
+      if (autoLine !== null) this.autoSay(autoLine, Date.now() < this.armAcceptUntil ? this.armAcceptLine : null);
+
+      const tick = saved !== undefined ? saved.tick : typeof client.currentSnapshotGameTick === "number" ? client.currentSnapshotGameTick : undefined;
       if (tick !== undefined && tick < this.world.tick) this.onTickReset(tick);
       this.world.updateFromSnapshot(snap, ownId, tick, client.rawSnapUnpacker?.deltas);
 
       this.refreshInputClock();
+
+      this.updateDuel(ownId);
 
       const self = this.world.getTee(ownId);
       if (!self || !self.alive) {
@@ -1922,7 +2276,6 @@ export class DdnetBot {
         this.idle();
         return;
       }
-      this.processAutoKill(client, self);
       if (!this.wasAlive) {
 
         this.wasAlive = true;
@@ -1974,6 +2327,17 @@ export class DdnetBot {
         return;
       }
 
+      this.updateWbSide(ownId, self);
+
+      if ((this.wbWalkFails > 0 || this.wbPauses > 0) && !self.frozen && this.wbDef !== null) {
+        const tx = Math.trunc(self.pos.x / 32);
+        const ty = Math.trunc(self.pos.y / 32);
+        if (inWbHall(this.wbDef, "left", tx, ty) || inWbHall(this.wbDef, "right", tx, ty)) {
+          this.wbWalkFails = 0;
+          this.wbPauses = 0;
+        }
+      }
+
       if (this.navPending && this.nav === null) {
         this.navPending = false;
         const reply = this.gotoCommand(this.cfg.goto ?? "");
@@ -1986,10 +2350,17 @@ export class DdnetBot {
       }
 
       let picked: number | undefined;
+
+      const walkingTo = this.rescueId >= 0 ? this.world.getTee(this.rescueId) : undefined;
+      if (this.nav !== null && this.rescueId >= 0 && (!this.rescuable(self, walkingTo) || this.inFreezeTiles(walkingTo.pos))) {
+        this.log("the friend it was walking to needs no rescue now; ending the walk");
+        this.endNav();
+      }
       if (this.nav !== null) {
 
         if (
           this.seekingGame &&
+          (!this.wbWalk || this.wbWalkCuttable(self)) &&
           this.someoneWorthFighting(ownId, self.pos, SEEK_ARRIVED_PX) &&
           (picked = this.pickTarget(snap, ownId, self.pos)) !== -1
         ) {
@@ -2009,29 +2380,13 @@ export class DdnetBot {
         if (targetId === -1) this.log("no target in reach");
       }
 
-      const frozenTeammate = this.closestFrozenTeammate(ownId, self.pos);
-      if (frozenTeammate !== undefined) {
-        const rescueDistance = vdistance(self.pos, frozenTeammate.pos);
-        const safeToRescue = targetId === -1 || !this.engagedNow(ownId, self);
-        if (rescueDistance <= TEAM_RESCUE_HAMMER_RANGE_PX && safeToRescue) {
-          this.rescueTeammate(client, self, frozenTeammate);
-          return;
-        }
-        if (targetId === -1 && this.nav === null && rescueDistance > TEAM_RESCUE_HAMMER_RANGE_PX && rescueDistance <= TEAM_RESCUE_RANGE_PX) {
-          const tx = Math.trunc(frozenTeammate.pos.x / 32);
-          const ty = Math.trunc(frozenTeammate.pos.y / 32);
-          this.startNav([tileGoal(this.world.collision, tx, ty)], { throughFreeze: true });
-          this.emit("event", `team rescue: walking to frozen teammate at (${tx},${ty})`);
-          return;
-        }
-      }
-
       if (
         this.mode === "fight" &&
-        this.home === null &&
 
         targetId !== -1 &&
         this.seekEnabled() &&
+
+        this.wbHolding() === null &&
         this.nav === null &&
         this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS &&
         !this.engagedNow(ownId, self) &&
@@ -2039,7 +2394,7 @@ export class DdnetBot {
         !this.someoneWorthFighting(ownId, self.pos, SEEK_ARRIVED_PX)
       ) {
         const here = this.crowdAt(ownId, self.pos);
-        const spot = this.busiestSpot(ownId, self.pos);
+        const spot = this.gameSpot(ownId, self.pos);
         if (spot !== null && spot.tees + spot.busy >= here.tees + here.busy + SEEK_MARGIN) {
           if (this.dullSinceTick < 0) this.dullSinceTick = this.world.tick;
           if (this.world.tick - this.dullSinceTick > SEEK_PATIENCE_TICKS) {
@@ -2060,8 +2415,11 @@ export class DdnetBot {
 
         if (this.trek !== null) this.endTrek();
         if (this.idleSinceTick < 0) this.idleSinceTick = this.world.tick;
-        if (this.home === null && this.nav === null && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
-          const spot = this.busiestSpot(ownId, self.pos);
+        if (!this.duelNow() && this.rescueFriend(client, self)) return;
+        const holding = this.wbHolding();
+
+        if (holding === null && this.nav === null && !this.duelNow() && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
+          const spot = this.gameSpot(ownId, self.pos);
           if (spot !== null) {
             this.travelSinceTick = this.world.tick;
             const tx = Math.trunc(spot.x / 32);
@@ -2078,19 +2436,28 @@ export class DdnetBot {
             }
           }
         }
-        if (this.home !== null && this.nav === null) {
+        if (this.home !== null && this.nav === null && !this.duelNow() && this.world.tick - this.idleSinceTick > GO_HOME_AFTER_TICKS) {
           const here = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
           if (Math.abs(here.tx - this.home.tx) > 2 || Math.abs(here.ty - this.home.ty) > 2) {
             const reply = this.gotoCommand(`${this.home.tx} ${this.home.ty}`);
-            this.emit("event", `returning to HOME (${this.home.tx},${this.home.ty}) -- ${reply}`);
+            this.emit("event", `nobody to fight: walking home to (${this.home.tx},${this.home.ty}) -- ${reply}`);
           }
-          this.idle();
-          return;
+          this.idleSinceTick = this.world.tick;
+        } else if (holding !== null && this.nav === null && this.world.tick - this.idleSinceTick > WB_RETURN_TICKS) {
+          this.walkToWb(ownId, self);
+          this.idleSinceTick = this.world.tick;
         }
-        this.idle();
+
+        const side = holding === null ? null : this.wbChooser.side;
+        const spot = holding === null || side === null ? null : this.wbSpot(ownId, holding, side, { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) });
+        const near = spot !== null && side !== null && holding !== null && inWbHall(holding, side, Math.trunc(self.pos.x / 32), Math.trunc(self.pos.y / 32));
+        const watch = near ? sideDef(holding, side).watch : null;
+        this.wander(client, self, near ? spot.tx * 32 + 16 : undefined, watch === null ? undefined : { x: watch.tx * 32 + 16, y: watch.ty * 32 + 16 });
         return;
       }
       this.idleSinceTick = -1;
+
+      if (!this.duelNow() && this.rescueFriend(client, self, true)) return;
 
       let input: PlayerInput;
       if (this.cfg.planner) {
@@ -2144,46 +2511,6 @@ export class DdnetBot {
     } catch {
 
     }
-  }
-
-  private executeAutoKill(client: TwClient, reason: string): void {
-    if (this.world.tick - this.lastKillTick < KILL_COOLDOWN_TICKS) return;
-    this.lastKillTick = this.world.tick;
-    this.pendingKill = null;
-    this.stuckAnchor = null;
-    this.frozenSince = -1;
-    this.stats.selfKills++;
-    this.emit("event", `${reason} -> /kill`);
-    try {
-      client.game.Kill();
-    } catch {
-
-    }
-  }
-
-  private requestAutoKill(client: TwClient, reason: string): boolean {
-    if (this.pendingKill !== null || this.world.tick - this.lastKillTick < KILL_COOLDOWN_TICKS) return false;
-    const delayMs = Number.isFinite(this.cfg.killDelayMs) ? Math.max(0, this.cfg.killDelayMs ?? 0) : 0;
-    const delayTicks = Math.ceil((delayMs / 1000) * SNAPSHOTS_PER_SECOND);
-    if (delayTicks <= 0) {
-      this.executeAutoKill(client, reason);
-      return true;
-    }
-    this.pendingKill = { atTick: this.world.tick + delayTicks, reason };
-    this.emit("event", `${reason}; automatic /kill in ${(delayTicks / SNAPSHOTS_PER_SECOND).toFixed(1)}s`);
-    return true;
-  }
-
-  private processAutoKill(client: TwClient, self: TeeState): void {
-    if (this.pendingKill === null) return;
-    if (!self.alive) {
-      this.pendingKill = null;
-      return;
-    }
-    if (this.world.tick < this.pendingKill.atTick) return;
-    const reason = this.pendingKill.reason;
-    this.pendingKill = null;
-    this.executeAutoKill(client, reason);
   }
 
   liveMap(): LiveMap | null {
@@ -2300,7 +2627,11 @@ export class DdnetBot {
               ? goal !== null
                 ? t("идёт к цели в обход ({n} тайлов до точки)", { n: Math.round(vdistance(self.pos, goal) / 32) })
                 : t("дерётся")
-              : t("цели нет");
+              : this.wbHolding() !== null && this.wbChooser.side !== null
+                ? this.wbChooser.side === "left"
+                  ? t("держит ВБ слева")
+                  : t("держит ВБ справа")
+                : t("цели нет");
     return {
       tick: this.world.tick,
       selfId: this.ownId,
@@ -2326,6 +2657,7 @@ export class DdnetBot {
     const f = this.follow;
     if (f !== null) return f.waiting ? t("ждёт {name}", { name: f.name }) : t("идёт к {name} ({n} тайлов)", { name: f.name, n });
     const goal = nav.goal;
+    if (this.wbWalk) return this.wbChooser.side === "right" ? t("идёт на ВБ справа ({n} тайлов)", { n }) : t("идёт на ВБ слева ({n} тайлов)", { n });
     if (this.seekingGame || goal === null) return t("идёт туда, где игра ({n} тайлов)", { n });
     return t("идёт в ({x},{y}) ({n} тайлов)", { x: goal.tx, y: goal.ty, n });
   }
@@ -2368,15 +2700,55 @@ export class DdnetBot {
   private isFriendId(id: number): boolean {
     const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === id);
     if (card === undefined) return false;
-    return listed(this.relations.friend, (card.name ?? "").trim().toLowerCase()) || listed(this.relations.clanFriend, (card.clan ?? "").trim().toLowerCase());
+    return this.onList("friend", (card.name ?? "").trim().toLowerCase(), id) || this.clanFriend((card.clan ?? "").trim().toLowerCase(), id);
   }
 
   private reachable(from: Vec2, tee: TeeState): boolean {
     const w = this.world.collision.width;
     const a = Math.trunc(from.y / 32) * w + Math.trunc(from.x / 32);
+
+    if (this.reachLeft >= 0 && this.world.tick !== this.reachWantTick) {
+      this.reachWantTick = this.world.tick;
+      this.checkWanted(from, a);
+    }
     const b = Math.trunc(tee.pos.y / 32) * w + Math.trunc(tee.pos.x / 32);
     const seen = this.reachAnswers.get(tee.id);
     if (seen !== undefined && seen.from === a && seen.to === b && this.world.tick - seen.tick < REACH_ANSWER_TICKS && this.world.tick >= seen.tick) return seen.ok;
+    if (this.reachLeft >= 0) {
+      this.reachWanted.add(tee.id);
+      return seen === undefined ? true : seen.ok;
+    }
+    return this.checkReach(from, a, tee, b);
+  }
+
+  private checkWanted(from: Vec2, a: number): void {
+    const wanted = [...this.reachWanted];
+    this.reachWanted.clear();
+    const now = this.world.tick;
+
+    const age = (id: number): number => {
+      const t = this.reachAnswers.get(id)?.tick;
+      return t === undefined || t > now ? -Infinity : t;
+    };
+    wanted.sort((x, y) => {
+      const ax = age(x);
+      const ay = age(y);
+      return ax === ay ? x - y : ax < ay ? -1 : 1;
+    });
+    const w = this.world.collision.width;
+    for (const id of wanted) {
+      if (this.reachLeft <= 0) break;
+      const tee = this.world.getTee(id);
+      if (tee === undefined) continue;
+      const b = Math.trunc(tee.pos.y / 32) * w + Math.trunc(tee.pos.x / 32);
+      const seen = this.reachAnswers.get(id);
+      if (seen !== undefined && seen.from === a && seen.to === b && now - seen.tick < REACH_ANSWER_TICKS && now >= seen.tick) continue;
+      this.reachLeft--;
+      this.checkReach(from, a, tee, b);
+    }
+  }
+
+  private checkReach(from: Vec2, a: number, tee: TeeState, b: number): boolean {
     let ok = true;
     try {
       ok = findRoute(this.world.collision, from, tee.pos, { nearTiles: 3, partial: false, maxNodes: REACH_MAX_NODES, throughFreeze: false }) !== null;
@@ -2384,7 +2756,21 @@ export class DdnetBot {
       ok = true;
     }
     this.reachAnswers.set(tee.id, { tick: this.world.tick, from: a, to: b, ok });
-    if (this.reachAnswers.size > 64) this.reachAnswers.clear();
+
+    if (this.reachAnswers.size > 64) {
+      for (const id of this.reachAnswers.keys()) if (this.world.getTee(id) === undefined) this.reachAnswers.delete(id);
+      while (this.reachAnswers.size > 64) {
+        let oldest = -1;
+        let at = Infinity;
+        for (const [id, v] of this.reachAnswers) {
+          if (v.tick < at) {
+            at = v.tick;
+            oldest = id;
+          }
+        }
+        this.reachAnswers.delete(oldest);
+      }
+    }
     return ok;
   }
 
@@ -2410,9 +2796,46 @@ export class DdnetBot {
     const cards = this.client?.SnapshotUnpacker?.AllObjClientInfo;
     const names = cards !== undefined && cards.length > 0 ? new Map(cards.map((c) => [c.id, foldName(c.name ?? "")])) : null;
     if (names !== null) for (const id of [...this.lastInputById.keys()]) if (!names.has(id)) this.lastInputById.delete(id);
+    const me = this.ownId >= 0 ? this.world.getTee(this.ownId) : undefined;
+    const friends = this.world.allTees().filter((t) => t.alive && t.id !== this.ownId && this.isFriendId(t.id));
+    for (const id of [...this.atUsById.keys()]) if (this.world.getTee(id) === undefined) this.atUsById.delete(id);
+    for (const id of [...this.atFriendById.keys()]) if (this.world.getTee(id) === undefined) this.atFriendById.delete(id);
+
+    for (const a of this.world.allTees()) {
+      const was = this.lastPosById.get(a.id);
+      if (was !== undefined && tick - was.tick <= 4 && Math.hypot(a.pos.x - was.x, a.pos.y - was.y) > TELEPORT_JUMP_PX) this.lastTouch.delete(a.id);
+      this.lastPosById.set(a.id, { x: a.pos.x, y: a.pos.y, tick });
+    }
+    const roping = new Map<number, number[]>();
+    for (const a of this.world.allTees()) {
+      if (!a.alive || a.hookedPlayer < 0) continue;
+      const on = roping.get(a.hookedPlayer);
+      if (on === undefined) roping.set(a.hookedPlayer, [a.id]);
+      else on.push(a.id);
+    }
+    for (const [victim, on] of roping) {
+      const had = this.lastTouch.get(victim);
+      this.lastTouch.set(victim, { by: had !== undefined && on.includes(had.by) ? had.by : Math.min(...on), tick });
+    }
+    for (const a of this.world.allTees()) {
+      if (!a.alive) continue;
+      const seenA = this.lastInputById.get(a.id);
+      if (seenA === undefined || seenA.at === tick || a.attackTick === seenA.attack || a.activeWeapon !== WEAPON_HAMMER) continue;
+      const r = wireAngleRad(a.angle);
+      const hp = { x: a.pos.x + Math.cos(r) * HAMMER_REACH_AHEAD_PX, y: a.pos.y + Math.sin(r) * HAMMER_REACH_AHEAD_PX };
+      for (const b of this.world.allTees()) if (b.id !== a.id && b.alive && vdistance(hp, b.pos) < HAMMER_REACH_PX) this.lastTouch.set(b.id, { by: a.id, tick });
+    }
     for (const tee of this.world.allTees()) {
+      if (!tee.alive) {
+        this.thawTickById.delete(tee.id);
+        this.lastTouch.delete(tee.id);
+      } else if (!tee.frozen && this.frozenSinceById.has(tee.id)) this.thawTickById.set(tee.id, tick);
       if (!tee.alive || !tee.frozen) this.frozenSinceById.delete(tee.id);
-      else if (!this.frozenSinceById.has(tee.id)) this.frozenSinceById.set(tee.id, tick);
+      else if (!this.frozenSinceById.has(tee.id)) {
+        this.frozenSinceById.set(tee.id, tick);
+
+        if (tick - (this.thawTickById.get(tee.id) ?? -Infinity) > REFREEZE_TICKS) this.onFreezeOnset(tee, me, tick);
+      }
       if (!tee.alive) continue;
       const name = names?.get(tee.id);
       const keys = tee.frozen ? -1 : inputKeysOf(tee);
@@ -2435,6 +2858,9 @@ export class DdnetBot {
 
       const changed = tee.angle !== seen.angle || tee.attackTick !== seen.attack || (keys >= 0 && seen.keys >= 0 && keys !== seen.keys);
       if (changed && tick >= seen.settleUntil) seen.changed = tick;
+      if (me !== undefined && tee.id !== me.id && ((tee.attackTick !== seen.attack && vdistance(tee.pos, me.pos) < SWING_AT_US_PX) || tee.hookedPlayer === me.id)) this.atUsById.set(tee.id, tick);
+
+      if (tee.id !== this.ownId && friends.some((f) => f.id !== tee.id && ((tee.attackTick !== seen.attack && !f.frozen && vdistance(tee.pos, f.pos) < SWING_AT_US_PX) || tee.hookedPlayer === f.id))) this.atFriendById.set(tee.id, tick);
       seen.angle = tee.angle;
       seen.attack = tee.attackTick;
       if (keys >= 0) seen.keys = keys;
@@ -2461,11 +2887,12 @@ export class DdnetBot {
   private spared(t: TeeState, card: TwClientInfo | undefined): boolean {
     const nameKey = (card?.name ?? "").trim().toLowerCase();
     const clanKey = (card?.clan ?? "").trim().toLowerCase();
-    if (listed(this.relations.team, nameKey) || listed(this.relations.ignore, nameKey)) return true;
-    if (!t.frozen && (listed(this.relations.friend, nameKey) || listed(this.relations.clanFriend, clanKey))) return true;
-    if (this.world.notPlaying(t.id)) return true;
-    const atWar = listed(this.relations.war, nameKey) || listed(this.relations.clanWar, clanKey);
-    return !atWar && this.afk(t);
+    if (this.onList("ignore", nameKey, t.id)) return true;
+    if (!t.frozen && (this.onList("friend", nameKey, t.id) || this.clanFriend(clanKey, t.id))) return true;
+    if (this.outOfGame(t.id)) return true;
+    const atWar = this.onList("war", nameKey, t.id) || listed(this.relations.clanWar, clanKey);
+
+    return !atWar && !this.duelNow() && this.afk(t);
   }
 
   private pickTarget(snap: TwSnapshotUnpacker, ownId: number, selfPos: Vec2): number {
@@ -2474,7 +2901,6 @@ export class DdnetBot {
       const want = foldName(this.cfg.targetName);
       const info = snap.AllObjClientInfo.find((c) => foldName(c.name ?? "") === want);
       if (!info || info.id === ownId) return -1;
-      if (listed(this.relations.team, foldName(info.name ?? ""))) return -1;
       const tee = this.world.getTee(info.id);
       return tee && tee.alive ? info.id : -1;
     }
@@ -2486,24 +2912,36 @@ export class DdnetBot {
     this.refreshInputClock();
     const info = new Map(snap.AllObjClientInfo.map((c) => [c.id, c]));
     let keepSettled = false;
+
+    const wb = this.wbHolding();
+    const wbSide = wb === null ? null : this.wbChooser.side;
+
+    const meInLeash = wb !== null && wbSide !== null && inWbHall(wb, wbSide, Math.trunc(selfPos.x / 32), Math.trunc(selfPos.y / 32));
     for (const tee of this.world.allTees()) {
       if (tee.id === ownId || !tee.alive) continue;
       const card = info.get(tee.id);
       const nameKey = (card?.name ?? "").trim().toLowerCase();
       const clanKey = (card?.clan ?? "").trim().toLowerCase();
 
-      if (listed(this.relations.team, nameKey) || listed(this.relations.friend, nameKey) || listed(this.relations.ignore, nameKey)) continue;
-      if (listed(this.relations.clanFriend, clanKey)) continue;
-      const atWar = listed(this.relations.war, nameKey) || listed(this.relations.clanWar, clanKey);
+      if (this.onList("friend", nameKey, tee.id) || this.onList("ignore", nameKey, tee.id)) continue;
+      if (this.clanFriend(clanKey, tee.id)) continue;
+      const atWar = this.onList("war", nameKey, tee.id) || listed(this.relations.clanWar, clanKey);
 
-      if (this.world.notPlaying(tee.id)) continue;
+      if (this.outOfGame(tee.id)) continue;
 
-      if (!atWar && this.afk(tee)) continue;
+      if (!atWar && !this.duelNow() && this.afk(tee)) continue;
       const d = vdistance(selfPos, tee.pos);
       if (d > TARGET_MAX_PX) continue;
-      if (this.home !== null) {
-        const homePos = { x: this.home.tx * 32 + 16, y: this.home.ty * 32 + 16 };
-        if (vdistance(homePos, tee.pos) > HOME_DEFEND_RADIUS_PX) continue;
+      let inWb = false;
+      if (wb !== null && wbSide !== null) {
+        const ttx = Math.trunc(tee.pos.x / 32);
+        const tty = Math.trunc(tee.pos.y / 32);
+        const roped = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id;
+
+        const atUs = this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
+
+        if (!roped && !atWar && (meInLeash ? !inWbLeash(wb, wbSide, ttx, tty) : !atUs)) continue;
+        inWb = inWbZone(wb, wbSide, ttx, tty);
       }
 
       if (this.trapCare() && this.inDeadZone(tee.pos) && !this.inDeadZone(selfPos)) continue;
@@ -2512,7 +2950,8 @@ export class DdnetBot {
 
       const sealed = (tee.frozen || (tee.id === this.targetId && this.nearFreeze(tee.pos))) && this.isSealed(tee);
 
-      const finishing = tee.id === this.targetId && tee.frozen && !sealed && frozenFor <= FINISH_BLOCK_TICKS && this.nearFreeze(tee.pos);
+      const wbFinish = WB_FINISH && wb !== null && wbSide !== null && meInLeash && tee.frozen && !sealed && inWb;
+      const finishing = wbFinish || (tee.id === this.targetId && tee.frozen && !sealed && frozenFor <= FINISH_BLOCK_TICKS && this.nearFreeze(tee.pos));
       const settled =
         sealed || (!finishing && frozenFor > (this.cfg.plannerCfg?.settledFreezeTicks ?? PLANNER_DEFAULTS.settledFreezeTicks));
 
@@ -2529,7 +2968,10 @@ export class DdnetBot {
 
       if (tee.id === this.targetId && tee.frozen && d < BLOCKING_RANGE_PX) score += this.cfg.plannerCfg?.blockHoldScore ?? PLANNER_DEFAULTS.blockHoldScore;
       if (finishing && d < BLOCKING_RANGE_PX) score += FINISH_BLOCK_SCORE;
+
+      if (wbFinish && WB_THAW_URGENCY > 0) score += WB_THAW_URGENCY * (1 - Math.min(1, tee.freezeTicksLeft / 150));
       if (this.world.tick - tee.attackTick < AGGRESSOR_MEMORY_TICKS && d < AGGRESSOR_RANGE_PX) score += 500;
+      if (this.world.tick - (this.atFriendById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS) score += AT_FRIEND_SCORE;
       const prev = this.lastSeenDist.get(tee.id);
       if (prev !== undefined && d < prev - 1) score += 200;
 
@@ -2539,6 +2981,7 @@ export class DdnetBot {
       }
       score -= d * TARGET_DIST_WEIGHT;
       if (outOfReach) score -= OUT_OF_REACH_SCORE;
+      if (inWb) score += WB_ZONE_SCORE;
       this.lastSeenDist.set(tee.id, d);
       if (score > bestScore) {
         bestScore = score;
@@ -2548,44 +2991,6 @@ export class DdnetBot {
 
     if (best === -1 && keepSettled) return this.targetId;
     return best;
-  }
-
-  private closestFrozenTeammate(ownId: number, selfPos: Vec2): TeeState | undefined {
-    const cards = new Map((this.client?.SnapshotUnpacker?.AllObjClientInfo ?? []).map((c) => [c.id, c]));
-    let best: TeeState | undefined;
-    let bestDistance = Infinity;
-    for (const tee of this.world.allTees()) {
-      if (tee.id === ownId || !tee.alive || !tee.frozen) continue;
-      const card = cards.get(tee.id);
-      if (!listed(this.relations.team, (card?.name ?? "").trim().toLowerCase())) continue;
-      if (this.home !== null) {
-        const homePos = { x: this.home.tx * 32 + 16, y: this.home.ty * 32 + 16 };
-        if (vdistance(homePos, tee.pos) > HOME_DEFEND_RADIUS_PX) continue;
-      }
-      const distance = vdistance(selfPos, tee.pos);
-      if (distance < bestDistance) {
-        best = tee;
-        bestDistance = distance;
-      }
-    }
-    return best;
-  }
-
-  private rescueTeammate(client: TwClient, self: TeeState, teammate: TeeState): void {
-    const dx = teammate.pos.x - self.pos.x;
-    const dy = teammate.pos.y - self.pos.y;
-    const distance = Math.hypot(dx, dy);
-    const input: PlayerInput = {
-      ...this.prevInput,
-      direction: Math.abs(dx) > 28 ? (dx < 0 ? -1 : 1) : 0,
-      targetX: dx || 1,
-      targetY: dy || 0,
-      jump: dy < -48 ? 1 : 0,
-      hook: 0,
-      wantedWeapon: WEAPON_HAMMER + 1,
-      fire: distance <= TEAM_RESCUE_HAMMER_RANGE_PX && this.world.tick % 8 < 2 ? 1 : 0,
-    };
-    this.applyInput(client, input, self.activeWeapon);
   }
 
   private lastPlan: RecFrame["plan"] = undefined;
@@ -2617,6 +3022,7 @@ export class DdnetBot {
       events: [],
       plan: this.lastPlan,
       walk: this.nav?.goal?.label,
+      ...(this.nav !== null && (this.nav.crossing || this.nav.plannedFreeze) ? { plannedFreeze: true } : {}),
     });
 
     this.lastPlan = undefined;
@@ -2696,12 +3102,16 @@ export class DdnetBot {
 
   private ensurePlanner(): Planner {
     if (this.planner === null) {
-      this.planner = new Planner({ budgetMs: LIVE_BUDGET_MS, explain: true, ...this.cfg.plannerCfg });
+      this.planner = new Planner(this.plannerCfgNow());
       this.planner.setDeadZone(this.deadCells);
       this.planner.setFreezeMemory(this.memory);
       if (this.cfg.opponentDirNet) this.planner.setOpponentDirNet(this.cfg.opponentDirNet);
     }
     return this.planner;
+  }
+
+  duelList(): DuelRow[] {
+    return readDuelFile(join(dirname(this.cfg.relationsFile ?? RELATIONS_FILE), "duels.json"));
   }
 
   clipList(): { name: string; size: number; when: number }[] {
@@ -2729,27 +3139,40 @@ export class DdnetBot {
 
   commandNames(): string[] {
     return [
-      "stop","go","war","friend","team","ignore","clanwar","clanfriend","sethome","home","clip","log","mode","try",
-      "target","brain","name","clan","skin","killdelay","reply","goto","stats","where","emote","reset","kill","yes","no","votes","vote","spec","join","lang","quit","help","seek","say","delhome",
+      "stop","go","war","friend","ignore","clanwar","clanfriend","home","wb","clip","log","mode","try",
+      "target","brain","goto","stats","where","emote","reset","kill","yes","no","votes","vote","spec","join","lang","quit","help","seek","say","duel","style","low",
     ];
   }
 
   knobs(): { key: string; value: unknown; def: unknown; changed: boolean }[] {
     const over = (this.cfg.plannerCfg ?? {}) as Record<string, unknown>;
     return Object.entries(PLANNER_DEFAULTS)
-      .map(([key, def]) => {
+      .map(([key, plannerDef]) => {
+
+        const def = key in this.startCfg ? this.startCfg[key] : plannerDef;
         const value = key in over ? over[key] : def;
-        return { key, value, def, changed: key in over && over[key] !== def };
+        return { key, value, def, changed: value !== def };
       })
       .sort((a, b) => (a.key < b.key ? -1 : 1));
+  }
+
+  resetKnobs(): string {
+    this.cfg.plannerCfg = { ...this.startCfg } as BotConfig["plannerCfg"];
+    for (const k of Object.keys(this.baseCfg)) delete this.baseCfg[k];
+    Object.assign(this.baseCfg, this.startCfg);
+    this.planner = null;
+    this.log("search settings: all back to the release defaults");
+    return "all search settings back to the defaults";
   }
 
   setKnob(key: string, raw: unknown): string {
     const defaults = PLANNER_DEFAULTS as Record<string, unknown>;
     if (!(key in defaults)) return t("нет такой настройки: {key}", { key });
-    const def = defaults[key];
+
+    const def = key in this.startCfg ? this.startCfg[key] : defaults[key];
     let value: unknown = raw;
-    if (typeof def === "number") {
+    if (raw === undefined || raw === null || String(raw).trim() === "") value = def;
+    else if (typeof def === "number") {
       const n = typeof raw === "number" ? raw : Number(String(raw).trim().replace(",", "."));
       if (!Number.isFinite(n)) return t("{key}: нужно число", { key });
       value = n;
@@ -2759,7 +3182,8 @@ export class DdnetBot {
       value = String(raw);
     }
     const next = { ...(this.cfg.plannerCfg ?? {}) } as Record<string, unknown>;
-    if (value === def) delete next[key];
+
+    if (value === def && !(key in this.startCfg)) delete next[key];
     else next[key] = value;
     this.cfg.plannerCfg = next as BotConfig["plannerCfg"];
 
@@ -2792,8 +3216,9 @@ export class DdnetBot {
 
   private loadRelations(): void {
     try {
-      const raw = JSON.parse(readFileSync(this.cfg.relationsFile ?? RELATIONS_FILE, "utf8")) as Record<string, string[]>;
-      for (const key of ["war", "friend", "team", "clanWar", "clanFriend", "ignore"] as const) {
+      const raw = JSON.parse(readFileSync(this.cfg.relationsFile ?? RELATIONS_FILE, "utf8")) as Record<string, string[]> & { v?: number };
+      this.relationsVersion = typeof raw.v === "number" ? raw.v : 1;
+      for (const key of ["war", "friend", "clanWar", "clanFriend", "ignore"] as const) {
         for (const v of raw[key] ?? []) this.relations[key].set(v.trim().toLowerCase(), v);
       }
     } catch {
@@ -2805,10 +3230,24 @@ export class DdnetBot {
     const file = this.cfg.settingsFile;
     if (file === undefined) return;
     try {
-      const cur = JSON.parse(readFileSync(file, "utf8")) as unknown;
+      const cur = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, "")) as unknown;
       if (cur === null || typeof cur !== "object" || Array.isArray(cur) || typeof (cur as Record<string, unknown>).server !== "string") return;
       if ((cur as Record<string, unknown>).lang === l) return;
       writeFileSync(file, JSON.stringify({ ...(cur as Record<string, unknown>), lang: l }, null, 2));
+    } catch {
+
+    }
+  }
+
+  private saveLowCpu(on: boolean): void {
+    const file = this.cfg.settingsFile;
+    if (file === undefined) return;
+    try {
+      const cur = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, "")) as unknown;
+      if (cur === null || typeof cur !== "object" || Array.isArray(cur) || typeof (cur as Record<string, unknown>).server !== "string") return;
+      const v = on ? "on" : "off";
+      if ((cur as Record<string, unknown>).lowCpu === v) return;
+      writeFileSync(file, JSON.stringify({ ...(cur as Record<string, unknown>), lowCpu: v }, null, 2));
     } catch {
 
     }
@@ -2822,9 +3261,9 @@ export class DdnetBot {
         file,
         JSON.stringify(
           {
+            v: this.relationsVersion,
             war: [...this.relations.war.values()],
-            friend: [...this.relations.friend.values()],
-            team: [...this.relations.team.values()],
+            friend: [...this.relations.friend].filter(([key]) => !this.teammates.has(key)).map(([, name]) => name),
             clanWar: [...this.relations.clanWar.values()],
             clanFriend: [...this.relations.clanFriend.values()],
             ignore: [...this.relations.ignore.values()],
@@ -2836,13 +3275,16 @@ export class DdnetBot {
     } catch (err) {
       this.log(`could not save the war list: ${err instanceof Error ? err.message : String(err)}`);
     }
+    this.onRelationsSaved?.();
   }
 
-  private relationCommand(key: "war" | "friend" | "team" | "clanWar" | "clanFriend" | "ignore", arg: string, label: string): string {
+  onRelationsSaved: (() => void) | null = null;
+
+  private relationCommand(key: "war" | "friend" | "clanWar" | "clanFriend" | "ignore", arg: string, label: string): string {
     const set = this.relations[key];
     let what = arg.trim();
 
-    if (what !== "" && what.toLowerCase() !== "off" && (key === "war" || key === "friend" || key === "team" || key === "ignore")) {
+    if (what !== "" && what.toLowerCase() !== "off" && (key === "war" || key === "friend" || key === "ignore")) {
       const hits = this.playersMatching(what);
 
       const exact = hits.find((h) => h.toLowerCase() === what.toLowerCase());
@@ -2852,11 +3294,21 @@ export class DdnetBot {
     }
     if (what === "") return set.size === 0 ? `${label}: nobody` : `${label}: ${[...set.values()].join(", ")}`;
     if (what.toLowerCase() === "off") {
+
+      const mates = key === "friend" ? [...set].filter(([k]) => this.teammates.has(k)) : [];
       set.clear();
+      for (const [k, n] of mates) set.set(k, n);
       this.saveRelations();
       return `${label}: cleared`;
     }
     const who = what.toLowerCase();
+
+    if (key === "friend" && this.teammates.has(who)) {
+      this.teammates.delete(who);
+      this.saveRelations();
+      return `${label}: ${set.get(who) ?? what}`;
+    }
+    if (key === "war") this.teammates.delete(who);
     if (set.has(who)) {
       const had = set.get(who) ?? what;
       set.delete(who);
@@ -2864,34 +3316,118 @@ export class DdnetBot {
       return `${label}: removed ${had}`;
     }
 
-    const opposites: ("war" | "friend" | "team" | "clanWar" | "clanFriend" | "ignore")[] =
-      key === "war" ? ["friend", "ignore"] : key === "friend" ? ["war"] : key === "team" ? ["war", "ignore"] : key === "clanWar" ? ["clanFriend"] : key === "ignore" ? ["war", "team"] : ["clanWar"];
+    const opposites: ("war" | "friend" | "clanWar" | "clanFriend" | "ignore")[] =
+      key === "war" ? ["friend", "ignore"] : key === "friend" ? ["war"] : key === "clanWar" ? ["clanFriend"] : key === "ignore" ? ["war"] : ["clanWar"];
     const moved = opposites.filter((o) => this.relations[o].delete(who));
     set.set(who, what);
     this.saveRelations();
     return `${label}: ${what}${moved.length > 0 ? ` (was on the ${moved.join("/")} list)` : ""}`;
   }
 
-  relationsInfo(): Record<"war" | "friend" | "team" | "ignore" | "clanWar" | "clanFriend", string[]> {
+  relationsInfo(): Record<"war" | "friend" | "ignore" | "clanWar" | "clanFriend" | "partner", string[]> {
     const r = this.relations;
     return {
       war: [...r.war.values()],
       friend: [...r.friend.values()],
-      team: [...r.team.values()],
       ignore: [...r.ignore.values()],
       clanWar: [...r.clanWar.values()],
       clanFriend: [...r.clanFriend.values()],
+
+      partner: [...this.partnerKeys],
     };
+  }
+
+  private readonly teammates = new Set<string>();
+
+  private readonly partnerKeys = new Set<string>();
+
+  private partnerId: number | null = null;
+
+  setPartnerId(id: number | null): void {
+    this.partnerId = id;
+  }
+
+  ownClientId(): number {
+    return this.phase === "online" ? this.ownId : -1;
+  }
+
+  private onList(list: "friend" | "ignore" | "war", nameKey: string, id: number): boolean {
+    if (list !== "war" && id >= 0 && id === this.duelFoe()) return false;
+    const byId = this.partnerId !== null;
+    if (byId && id === this.partnerId && partnerNick(this.partnerKeys, nameKey)) {
+      for (const key of this.relations[list].keys()) if (this.partnerKeys.has(key.replace(DUPLICATE_PREFIX, ""))) return true;
+      return false;
+    }
+    return listed(this.relations[list], nameKey, this.partnerKeys, byId);
+  }
+
+  private clanFriend(clanKey: string, id: number): boolean {
+    return !(id >= 0 && id === this.duelFoe()) && listed(this.relations.clanFriend, clanKey);
+  }
+
+  private duelFoe(): number {
+    return this.duelSeen && this.duelNow() && this.duelScore !== null ? this.duelScore.id : -1;
+  }
+
+  private outOfGame(id: number): boolean {
+    return this.duelNow() ? this.world.spectating(id) : this.world.notPlaying(id);
+  }
+
+  private isPartnerTee(id: number): boolean {
+    if (this.partnerKeys.size === 0) return false;
+    const nameKey = this.nameKeyOf(id);
+    if (this.partnerId !== null && this.partnerId >= 0) return id === this.partnerId && partnerNick(this.partnerKeys, nameKey);
+    return this.partnerKeys.has(nameKey.replace(DUPLICATE_PREFIX, ""));
+  }
+
+  private namedChallenger(id: number): boolean {
+    const c = this.duelChallenger;
+    if (c === "") return false;
+    const n = this.nameKeyOf(id);
+    if (n === "") return false;
+    return [n, n.replace(DUPLICATE_PREFIX, "")].some((k) => k !== "" && (c === k || c.endsWith(` ${k}`) || c.endsWith(`]${k}`) || c.replace(DUPLICATE_PREFIX, "") === k));
+  }
+
+  private nameKeyOf(id: number): string {
+    const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === id);
+    return (card?.name ?? "").trim().toLowerCase();
+  }
+
+  private relationsVersion = 2;
+  setTeammate(name: string): void {
+    const what = name.trim();
+    if (what === "") return;
+    const who = what.toLowerCase();
+
+    if (this.relationsVersion < 2) {
+      const had = this.relations.friend.delete(who);
+      this.relationsVersion = 2;
+      if (had) this.saveRelations();
+    }
+
+    this.partnerKeys.add(who);
+    if (this.relations.friend.has(who)) return;
+
+    this.teammates.add(who);
+    this.relations.friend.set(who, what);
   }
 
   setRelation(list: "war" | "friend" | "ignore", name: string, on: boolean): string {
     const what = name.trim();
     if (what === "" || !["war", "friend", "ignore"].includes(list)) return "";
     const who = what.toLowerCase();
+
+    if (list === "friend" || (list === "war" && on)) this.teammates.delete(who);
     const r = this.relations;
     if (!on) {
 
-      for (const key of [...r[list].keys()]) if (key === who || (key !== "" && (who.includes(key) || key.includes(who)))) r[list].delete(key);
+      for (const key of [...r[list].keys()]) {
+
+        if (key === who || (key !== "" && !this.partnerKeys.has(key.replace(DUPLICATE_PREFIX, "")) && (who.includes(key) || key.replace(DUPLICATE_PREFIX, "") === who.replace(DUPLICATE_PREFIX, "")))) {
+          r[list].delete(key);
+          if (list === "friend") this.teammates.delete(key);
+        }
+      }
       this.saveRelations();
       return `${list}: removed ${what}`;
     }
@@ -2904,13 +3440,461 @@ export class DdnetBot {
     return `${list}: ${what}`;
   }
 
+  private duelScore: { id: number; name: string; startMs: number; ours: number; theirs: number } | null = null;
+  private duelSwapSince = -1;
+  private endDuelScore(): void {
+    const d = this.duelScore;
+    this.duelScore = null;
+    if (d === null) return;
+    this.emit("event", t("дуэль с {name} окончена: заморозил {ours}, заморозили {theirs}", { name: d.name, ours: d.ours, theirs: d.theirs }));
+    const file = join(dirname(this.cfg.relationsFile ?? RELATIONS_FILE), "duels.json");
+    try {
+      let list: unknown[] = [];
+      if (existsSync(file)) {
+        try {
+          const raw = JSON.parse(readFileSync(file, "utf8")) as unknown;
+          if (Array.isArray(raw)) list = raw;
+        } catch {
+
+          renameSync(file, `${file}.bad-${Date.now()}`);
+        }
+      }
+      list.push({ at: new Date(d.startMs).toISOString(), seconds: Math.round((Date.now() - d.startMs) / 1000), opponent: d.name, ours: d.ours, theirs: d.theirs });
+      mkdirSync(dirname(file), { recursive: true });
+
+      writeFileSync(`${file}.tmp`, JSON.stringify(list.slice(-DUEL_LOG_KEEP), null, 1));
+      renameSync(`${file}.tmp`, file);
+    } catch (err) {
+      this.log(`could not save the duel: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private onFreezeOnset(tee: TeeState, me: TeeState | undefined, tick: number): void {
+    if (me === undefined || !me.alive) return;
+    const last = this.lastTouch.get(tee.id);
+    if (last === undefined || tick - last.tick > BLOCK_CREDIT_TICKS) return;
+    if (tee.id === me.id) {
+      if (last.by === me.id || this.isFriendId(last.by)) return;
+      this.stats.blockedBy++;
+      if (this.duelScore !== null && last.by === this.duelScore.id) this.duelScore.theirs++;
+      this.emit("event", t("меня заморозил {name}", { name: this.nameOfLive(last.by) }));
+      return;
+    }
+    if (last.by !== me.id || this.isFriendId(tee.id)) return;
+    this.stats.blocks++;
+    if (this.duelScore !== null && tee.id === this.duelScore.id) this.duelScore.ours++;
+    this.emit("event", t("заморозил {name}", { name: this.nameOfLive(tee.id) }));
+  }
+
+  private inFreezeTiles(pos: Vec2): boolean {
+    return this.inFreezeTilesIn(this.world.collision, pos);
+  }
+
+  private rescuable(self: TeeState, t: TeeState | undefined): t is TeeState {
+    if (t === undefined || t.id === this.ownId || !t.alive || !t.frozen || t.deepFrozen === true || t.freezeTicksLeft < RESCUE_MIN_FREEZE_TICKS) return false;
+    if (!this.isFriendId(t.id) || this.world.notPlaying(t.id)) return false;
+    if ((this.rescuePausedUntil.get(t.id) ?? -Infinity) > this.world.tick) return false;
+    if (vdistance(self.pos, t.pos) > RESCUE_RANGE_PX) return false;
+    const wb = this.wbHolding();
+    const side = wb === null ? null : this.wbChooser.side;
+    if (wb !== null && side !== null && !inWbLeash(wb, side, Math.trunc(t.pos.x / 32), Math.trunc(t.pos.y / 32))) return false;
+    return true;
+  }
+
+  private rescueFriend(client: TwClient, self: TeeState, fighting = false): boolean {
+    if (self.frozen || this.mode !== "fight") return false;
+    if (fighting && this.world.allTees().some((t) => t.id !== this.ownId && t.alive && t.hookedPlayer === this.ownId && !this.isFriendId(t.id))) return false;
+    const cands = this.world
+      .allTees()
+      .filter((t) => this.rescuable(self, t))
+      .sort((a, b) => vdistance(self.pos, a.pos) - vdistance(self.pos, b.pos));
+    if (cands.length === 0) {
+      this.rescueHammerSince = -1;
+      this.rescuePullSince = -1;
+      return false;
+    }
+
+    const inFreezeAll = cands.filter((t) => this.inFreezeTiles(t.pos));
+    const pulling = inFreezeAll.find((t) => t.id === this.rescuePullId && this.world.tick - this.rescuePullAt < 10);
+    const inFreeze =
+      pulling ??
+      inFreezeAll.find((t) => {
+        const none = this.pullNone.get(t.id);
+        return none === undefined || none.key !== this.pullKey(self, t) || this.world.tick - none.tick >= PULL_NONE_TICKS;
+      }) ??
+      inFreezeAll[0];
+    if (inFreeze !== undefined && (!this.lowCpu || pulling !== undefined || this.stats.ticks % 3 === 0)) {
+      const him = inFreeze;
+      const pull = this.pullLine(self, him);
+
+      if (pull === null && self.hookState !== HOOK_IDLE && self.hookedPlayer !== him.id && this.rescuePullId === him.id && this.world.tick - this.rescuePullAt < 10) {
+        this.applyInput(client, this.guard(self, { ...this.prevInput, hook: 0 }), self.activeWeapon);
+        return true;
+      }
+
+      const safe = pull === null ? null : this.guard(self, pull);
+      if (pull !== null && safe === pull) {
+
+        if (this.rescuePullId !== him.id || this.rescuePullSince < 0 || this.world.tick - this.rescuePullAt > 25) {
+          this.rescuePullId = him.id;
+          this.rescuePullSince = this.world.tick;
+        } else if (this.world.tick - this.rescuePullSince > PULL_GIVE_UP_TICKS) {
+          this.rescuePausedUntil.set(him.id, this.world.tick + RESCUE_PAUSE_TICKS);
+          this.rescuePullSince = -1;
+          this.log(`friend ${this.nameOfLive(him.id)} is still in the freeze after ${PULL_GIVE_UP_TICKS / 50}s of pulling; leaving him for ${RESCUE_PAUSE_TICKS / 50}s`);
+          return false;
+        }
+        this.rescuePullAt = this.world.tick;
+        if (this.world.tick - this.rescueSaidTick > 5 * 50) {
+          this.rescueSaidTick = this.world.tick;
+          this.emit("event", `pulling friend ${this.nameOfLive(him.id)} out of the freeze with the rope`);
+        }
+        this.applyInput(client, safe, self.activeWeapon);
+        return true;
+      }
+    }
+    if (inFreeze === undefined) this.rescuePullSince = -1;
+    const him = cands.find((t) => !this.inFreezeTiles(t.pos));
+    if (him === undefined) return false;
+    const name = this.nameOfLive(him.id);
+    const d = vdistance(self.pos, him.pos);
+    if (d > RESCUE_HAMMER_PX * 3) {
+      if (fighting) return false;
+
+      if (this.nav === null && this.world.tick - this.rescueWalkTick > RESCUE_WALK_RETRY_TICKS && this.reachable(self.pos, him)) {
+        this.rescueWalkTick = this.world.tick;
+        const reply = this.gotoCommand(`@${name}`, { throughFreeze: false, crossings: [] });
+        if (this.nav !== null) {
+          this.rescueId = him.id;
+          this.seekingGame = this.navReturnMode === "fight";
+        }
+        this.log(`friend ${name} lies frozen ${Math.round(d / 32)} tiles off; walking to him -- ${reply}`);
+      }
+      return false;
+    }
+    if (fighting && d > RESCUE_HAMMER_PX) return false;
+    const input: PlayerInput = { ...emptyInput(), targetX: him.pos.x - self.pos.x, targetY: him.pos.y - self.pos.y, fire: this.prevInput.fire, wantedWeapon: WEAPON_HAMMER + 1 };
+    if (d <= RESCUE_HAMMER_PX && this.rescueHitSafe(self, him)) {
+      if (this.rescueHammerId !== him.id || this.rescueHammerSince < 0) {
+        this.rescueHammerId = him.id;
+        this.rescueHammerSince = this.world.tick;
+      } else if (this.world.tick - this.rescueHammerSince > RESCUE_GIVE_UP_TICKS) {
+
+        this.rescuePausedUntil.set(him.id, this.world.tick + RESCUE_PAUSE_TICKS);
+        this.rescueHammerSince = -1;
+        this.log(`friend ${name} does not thaw under the hammer; leaving him for ${RESCUE_PAUSE_TICKS / 50}s`);
+        return false;
+      }
+
+      input.fire = this.prevInput.fire + 1;
+      if (this.world.tick - this.rescueSaidTick > 5 * 50) {
+        this.rescueSaidTick = this.world.tick;
+        this.emit("event", `hammering friend ${name} out of the freeze`);
+      }
+    } else {
+      if (fighting) return false;
+      if (d > RESCUE_HAMMER_PX && Math.abs(him.pos.x - self.pos.x) > 8) input.direction = him.pos.x > self.pos.x ? 1 : -1;
+
+      if (input.fire & 1) input.fire++;
+    }
+    this.applyInput(client, this.guard(self, input), self.activeWeapon);
+    return true;
+  }
+
+  private pullLine(self: TeeState, him: TeeState): PlayerInput | null {
+    if (vdistance(self.pos, him.pos) > TUNING.hookLength) return null;
+    const onHim = self.hookedPlayer === him.id;
+
+    if (!onHim && self.hookState !== HOOK_IDLE && self.hookState !== HOOK_FLYING) return null;
+    const key = this.pullKey(self, him);
+    const none = this.pullNone.get(him.id);
+    if (none !== undefined && none.key === key && this.world.tick - none.tick < PULL_NONE_TICKS && this.world.tick >= none.tick) return null;
+    if (this.pullSim === null || this.pullSim.collision !== this.world.collision) {
+      this.pullSim = new SimWorld(this.world.collision, { svHit: true, respawnDelayTicks: 0, infiniteAmmo: true });
+    }
+    const sim = this.pullSim;
+
+    const others = this.world.allTees().filter((t) => t.alive && t.id !== self.id && t.id !== him.id && vdistance(t.pos, self.pos) < TUNING.hookLength + 64);
+    let best: PlayerInput | null = null;
+    let start: ReturnType<SimWorld["saveState"]> | null = null;
+    try {
+      for (const t of sim.allTees()) sim.removeTee(t.id);
+      sim.addTee(self.id, self.pos);
+      sim.applyTeeState(self.id, self);
+      sim.addTee(him.id, him.pos);
+      sim.applyTeeState(him.id, him);
+      for (const o of others) {
+        sim.addTee(o.id, o.pos);
+        sim.applyTeeState(o.id, o);
+      }
+      const hold0 = (): void => {
+        sim.setInput(him.id, emptyInput());
+        for (const o of others) sim.setInput(o.id, emptyInput());
+      };
+      for (let t = 0; t < this.lagTicks(); t++) {
+        sim.setInput(self.id, this.prevInput);
+        hold0();
+        sim.step();
+      }
+      start = sim.saveState();
+      const holds = onHim ? [0, ...PULL_HOLDS] : PULL_HOLDS;
+      search: for (const hold of holds) {
+        for (const dir of [0, -1, 1]) {
+          for (const jump of [0, 1]) {
+            sim.restoreState(start);
+            let caught = onHim;
+            let ok = true;
+            let first: PlayerInput | null = null;
+            for (let t = 0; t < PULL_ROLL_TICKS && ok; t++) {
+              const me = sim.getTee(self.id);
+              const fr = sim.getTee(him.id);
+              if (me === undefined || fr === undefined) {
+                ok = false;
+                break;
+              }
+              const input: PlayerInput = {
+                ...emptyInput(),
+                direction: t < hold ? dir : 0,
+                jump: jump === 1 && t < 2 ? 1 : 0,
+                hook: t < hold ? 1 : 0,
+                targetX: fr.pos.x - me.pos.x,
+                targetY: fr.pos.y - me.pos.y,
+                wantedWeapon: WEAPON_HAMMER + 1,
+              };
+              if (t === 0) {
+                first = input;
+
+                if (!onHim && hold > 0 && self.hookState === HOOK_IDLE && others.length > 0 && this.ropeCatches(self, input, others, him)) {
+                  ok = false;
+                  break;
+                }
+              }
+              sim.setInput(self.id, input);
+              hold0();
+              sim.step();
+              const meAfter = sim.getTee(self.id);
+              if (meAfter === undefined || !meAfter.alive || meAfter.frozen) ok = false;
+              else if (meAfter.hookedPlayer === him.id) caught = true;
+              else if (meAfter.hookedPlayer >= 0) ok = false;
+            }
+            if (!ok || !caught || first === null) continue;
+            const end = sim.getTee(him.id);
+            if (end === undefined || !end.alive || this.inFreezeTilesIn(sim.collision, end.pos) || restsInFreeze(sim.collision, end.pos, end.vel) > 0) continue;
+            best = first;
+            break search;
+          }
+        }
+      }
+    } catch {
+      best = null;
+    } finally {
+      if (start !== null) sim.restoreState(start);
+    }
+    if (best === null) this.pullNone.set(him.id, { key, tick: this.world.tick });
+    else this.pullNone.delete(him.id);
+    return best;
+  }
+
+  private pullKey(self: TeeState, him: TeeState): string {
+    return `${Math.trunc(self.pos.x / 32)},${Math.trunc(self.pos.y / 32)}:${Math.trunc(him.pos.x / 32)},${Math.trunc(him.pos.y / 32)}:${self.hookState}:${self.hookedPlayer === him.id ? 1 : 0}`;
+  }
+
+  private inFreezeTilesIn(c: Collision, pos: Vec2): boolean {
+    if (c.isFreeze(pos.x, pos.y)) return true;
+    return [-HALF_TEE, HALF_TEE].some((dx) => [-HALF_TEE, HALF_TEE].some((dy) => c.isFreeze(pos.x + dx, pos.y + dy)));
+  }
+
+  private rescueHitSafe(self: TeeState, him: TeeState): boolean {
+    const dx = him.pos.x - self.pos.x;
+    const dy = him.pos.y - self.pos.y;
+    const n = Math.hypot(dx, dy) || 1;
+    const ux = dx / n;
+    const uy = dy / n - 1.1;
+    const m = Math.hypot(ux, uy) || 1;
+    const vel = { x: him.vel.x + (ux / m) * 10, y: him.vel.y + (uy / m) * 10 };
+    if (restsInFreeze(this.world.collision, him.pos, vel) > 0) return false;
+    for (const t of this.world.allTees()) {
+      if (t.id === this.ownId || t.id === him.id || !t.alive || !t.frozen || this.isFriendId(t.id)) continue;
+      if (vdistance(t.pos, self.pos) < RESCUE_HAMMER_PX + 16) return false;
+    }
+    return true;
+  }
+
+  private wbHolding(): WbDef | null {
+    if (this.wbDef === null || this.wbMode === "off" || this.home !== null || this.duelNow()) return null;
+    if (Date.now() < this.wbPausedUntilMs) return null;
+    return this.mode === "fight" || (this.mode === "goto" && this.navReturnMode === "fight") ? this.wbDef : null;
+  }
+
+  duelNow(): boolean {
+    return this.duelMode === "on" || (this.duelMode === "auto" && this.duelSeen);
+  }
+
+  private updateDuel(ownId: number): void {
+
+    const all = this.world.allTees().filter((t) => t.id !== ownId && t.alive);
+    const visible = all.length;
+    const others = all.filter((t) => !this.isPartnerTee(t.id) && (!this.isFriendId(t.id) || this.namedChallenger(t.id)));
+    const accepted = this.duelAnsweredMs > 0 && Date.now() - this.duelAnsweredMs < DUEL_ACCEPT_WINDOW_MS;
+    const now = this.world.tick;
+    if (!this.duelSeen) {
+      if (!(visible === 1 && others.length === 1 && accepted)) {
+        this.duelForSince = -1;
+        return;
+      }
+      if (this.duelForSince < 0 || now < this.duelForSince) this.duelForSince = now;
+      if (now - this.duelForSince < DUEL_ENTER_TICKS) return;
+      this.duelSeen = true;
+      this.duelAgainstSince = -1;
+      const foe = others[0];
+      if (foe !== undefined) this.duelScore = { id: foe.id, name: this.nameOfLive(foe.id), startMs: Date.now(), ours: 0, theirs: 0 };
+      if (this.duelMode === "off") return;
+      if (this.nav !== null) this.cancelNav("a duel started");
+      if (this.trek !== null) this.endTrek();
+      this.emit("event", "duel: only the opponent is on screen -- playing it 1 on 1 (no WB, no walks)");
+      return;
+    }
+
+    const d = this.duelScore;
+    if (d !== null && visible === 1 && others.length === 1 && others[0].id !== d.id) {
+      const name = this.nameOfLive(others[0].id);
+      if (name === d.name) {
+        d.id = others[0].id;
+        this.duelSwapSince = -1;
+      } else {
+        if (this.duelSwapSince < 0 || now < this.duelSwapSince) this.duelSwapSince = now;
+        if (now - this.duelSwapSince >= DUEL_ENTER_TICKS) {
+          this.endDuelScore();
+          this.duelScore = { id: others[0].id, name, startMs: Date.now(), ours: 0, theirs: 0 };
+          this.duelSwapSince = -1;
+        }
+      }
+    } else this.duelSwapSince = -1;
+
+    if (visible < 2 && others.length === visible) {
+      this.duelAgainstSince = -1;
+      return;
+    }
+    if (this.duelAgainstSince < 0 || now < this.duelAgainstSince) this.duelAgainstSince = now;
+    if (now - this.duelAgainstSince < DUEL_LEAVE_TICKS) return;
+    this.duelSeen = false;
+    this.duelForSince = -1;
+    this.endDuelScore();
+
+    this.duelAnsweredMs = 0;
+    this.duelChallenger = "";
+    if (this.duelMode === "auto") this.emit("event", "duel over: the server is on screen again");
+  }
+
+  private noteWbWalkDeath(): void {
+    this.wbWalkFails++;
+    if (this.wbWalkFails < WB_WALK_MAX_FAILS) return;
+    this.wbWalkFails = 0;
+    this.wbPauses++;
+    const pauseMs = Math.min(WB_WALK_PAUSE_MAX_MS, WB_WALK_PAUSE_MS * 2 ** (this.wbPauses - 1));
+    this.wbPausedUntilMs = Date.now() + pauseMs;
+    const lag = this.lagTicks();
+    if (this.nav !== null && this.wbWalk) this.cancelNav("the WB cannot be reached");
+    this.emit("event", t("ВБ: {n} попыток подряд погибли по пути (пинг {lag} тиков) -- {min} мин играю там, где стою", { n: WB_WALK_MAX_FAILS, lag, min: Math.round(pauseMs / 60_000) }));
+  }
+
+  private wbWalkCuttable(self: TeeState): boolean {
+    const def = this.wbHolding();
+    const side = this.wbChooser.side;
+    if (def === null || side === null || self.frozen) return false;
+    const tx = Math.trunc(self.pos.x / 32);
+    const ty = Math.trunc(self.pos.y / 32);
+
+    return sideDef(def, side).zone.some((b) => tx >= b.x0 && tx <= b.x1 && ty > b.y0 && ty <= b.y1);
+  }
+
+  private updateWbSide(ownId: number, self: TeeState): void {
+    const def = this.wbDef;
+    if (def === null) return;
+    const counts = { left: 0, right: 0 };
+    for (const t of this.world.allTees()) {
+      if (t.id === ownId || !t.alive) continue;
+      if (this.afk(t, true) || this.parkedInFreeze(t)) continue;
+      const at = sideAt(def, Math.trunc(t.pos.x / 32), Math.trunc(t.pos.y / 32));
+      if (at !== null) counts[at]++;
+    }
+    this.wbCounts = counts;
+    const before = this.wbChooser.side;
+    let side: WbSide;
+    if (this.wbMode === "left" || this.wbMode === "right") {
+      side = this.wbMode;
+      this.wbChooser.side = side;
+    } else {
+      const here = sideAt(def, Math.trunc(self.pos.x / 32), Math.trunc(self.pos.y / 32));
+      const nearer = Math.abs(self.pos.x / 32 - def.left.spots[0].tx) <= Math.abs(self.pos.x / 32 - def.right.spots[0].tx) ? "left" : "right";
+      side = this.wbChooser.update(counts, here, this.world.tick, nearer);
+
+      const tx = Math.trunc(self.pos.x / 32);
+      const ty = Math.trunc(self.pos.y / 32);
+      const standing = self.alive && !self.frozen ? (["left", "right"] as const).find((s) => inAnyBox(sideDef(def, s).zone, tx, ty)) : undefined;
+      if (standing !== undefined && standing !== side) {
+        this.wbChooser.adopt(standing);
+        side = standing;
+      }
+    }
+    if (before === null || before === side || this.wbHolding() === null) return;
+    this.emit("event", `WB: over to the ${side} (${counts.left} playing on the left, ${counts.right} on the right)`);
+
+    if (this.wbWalk && this.nav !== null) {
+      this.nav.cancel("the WB side changed");
+      this.endNav();
+      this.idleSinceTick = this.world.tick - WB_RETURN_TICKS - 1;
+    }
+  }
+
+  private wbSpot(ownId: number, def: WbDef, side: WbSide, here?: { tx: number; ty: number }): { tx: number; ty: number } {
+    const spots = sideDef(def, side).spots;
+    const taken = (p: { tx: number; ty: number }): boolean =>
+      this.world.allTees().some((t) => t.id !== ownId && t.alive && !t.frozen && Math.abs(t.pos.x - (p.tx * 32 + 16)) < 32 && Math.abs(t.pos.y - (p.ty * 32 + 16)) < 32);
+    return spots.find((p) => (here !== undefined && onWbSpot(here, p)) || !taken(p)) ?? spots[0];
+  }
+
+  private walkToWb(ownId: number, self: TeeState): void {
+    const def = this.wbHolding();
+    const side = this.wbChooser.side;
+    if (def === null || side === null) return;
+    const col = this.world.collision;
+    const tx = Math.trunc(self.pos.x / 32);
+    const ty = Math.trunc(self.pos.y / 32);
+    const inside = inWbHall(def, side, tx, ty);
+
+    const spots = [this.wbSpot(ownId, def, side, { tx, ty }), ...sideDef(def, side).spots];
+    let spot: { tx: number; ty: number } | null = null;
+    for (const p of spots) {
+      if (onWbSpot({ tx, ty }, p)) return;
+      if (!inside) {
+        spot = p;
+        break;
+      }
+      const way = findRoute(col, self.pos, { x: p.tx * 32 + 16, y: p.ty * 32 + 16 }, { nearTiles: 1, partial: false, allowKill: false, throughFreeze: false, maxNodes: REACH_MAX_NODES });
+      if (way !== null) {
+        spot = p;
+        break;
+      }
+    }
+    if (spot === null) {
+      this.log(`WB ${side}: no way back to its spots from (${tx},${ty}) without the freeze; holding here`);
+      return;
+    }
+    const reply = this.startNav([tileGoal(col, spot.tx, spot.ty)], inside ? { throughFreeze: false } : { crossings: def.crossings });
+    this.wbWalk = this.nav !== null;
+
+    this.seekingGame = this.nav !== null && this.navReturnMode === "fight";
+    const line = `WB ${side}: back to (${spot.tx},${spot.ty}) -- ${reply}`;
+    if (inside) this.log(line);
+    else this.emit("event", line);
+  }
+
   private crowdAt(ownId: number, at: Vec2): { tees: number; busy: number } {
     let tees = 0;
     let busy = 0;
     for (const t of this.world.allTees()) {
       if (t.id === ownId || !t.alive) continue;
-      const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === t.id);
-      if (listed(this.relations.team, (card?.name ?? "").trim().toLowerCase())) continue;
       if (vdistance(at, t.pos) > CROWD_RADIUS_PX) continue;
       if (this.afk(t, true) || this.parkedInFreeze(t)) continue;
       tees++;
@@ -2932,8 +3916,6 @@ export class DdnetBot {
   private someoneWorthFighting(ownId: number, at: Vec2, within: number): boolean {
     for (const t of this.world.allTees()) {
       if (t.id === ownId || !t.alive || t.frozen) continue;
-      const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === t.id);
-      if (listed(this.relations.team, (card?.name ?? "").trim().toLowerCase())) continue;
       if (vdistance(at, t.pos) > within) continue;
       if (!this.afk(t)) return true;
     }
@@ -2983,7 +3965,16 @@ export class DdnetBot {
         trek.at++;
         trek.best = Infinity;
         trek.bestTick = this.world.tick;
-        if (!this.requestAutoKill(this.client!, "the way there starts with a respawn")) this.log("the way there starts with a respawn, but /kill is on cooldown");
+        if (this.world.tick - this.lastKillTick >= KILL_COOLDOWN_TICKS) {
+          this.lastKillTick = this.world.tick;
+          this.stats.selfKills++;
+          this.log("the way there starts with a respawn -> /kill");
+          try {
+            this.client?.game.Kill();
+          } catch {
+
+          }
+        }
         continue;
       }
       const p = { x: s.x * 32 + 16, y: s.y * 32 + 16 };
@@ -3088,6 +4079,8 @@ export class DdnetBot {
   }
 
   private seekEnabled(): boolean {
+
+    if (this.duelNow()) return false;
     return (this.cfg.plannerCfg as { seek?: boolean } | undefined)?.seek !== false;
   }
 
@@ -3112,8 +4105,8 @@ export class DdnetBot {
       const card = info.get(other.id);
       const nameKey = (card?.name ?? "").trim().toLowerCase();
       const clanKey = (card?.clan ?? "").trim().toLowerCase();
-      if (listed(this.relations.friend, nameKey) || listed(this.relations.ignore, nameKey)) return true;
-      if (listed(this.relations.clanFriend, clanKey)) return true;
+      if (this.onList("friend", nameKey, other.id) || this.onList("ignore", nameKey, other.id)) return true;
+      if (this.clanFriend(clanKey, other.id)) return true;
     }
     return false;
   }
@@ -3161,6 +4154,11 @@ export class DdnetBot {
     return best;
   }
 
+  private gameSpot(ownId: number, from: Vec2): ReturnType<DdnetBot["busiestSpot"]> {
+    const spot = this.busiestSpot(ownId, from);
+    return spot !== null && wbWalkAllowed(this.wbDef, Math.trunc(spot.x / 32), Math.trunc(spot.y / 32)) ? spot : null;
+  }
+
   private playersMatching(text: string): string[] {
     const needle = text.trim().toLowerCase();
     if (needle === "") return [];
@@ -3182,7 +4180,8 @@ export class DdnetBot {
 
   private pingLagTicks(): number {
     const snap = this.client?.SnapshotUnpacker;
-    const info = this.ownId >= 0 ? snap?.getObjPlayerInfo(this.ownId) : undefined;
+
+    const info = this.ownId >= 0 && typeof snap?.getObjPlayerInfo === "function" ? snap.getObjPlayerInfo(this.ownId) : undefined;
     const ms = typeof info?.latency === "number" && info.latency > 0 ? info.latency : 0;
     return Math.round(ms / 20);
   }
@@ -3293,11 +4292,46 @@ export class DdnetBot {
         (trapped && frozenFor >= TRAPPED_TICKS)) &&
 
       (!helped || frozenFor >= HELPED_LIMIT_TICKS);
-    if (overdue) {
-      const reason = trapped && frozenFor < FROZEN_IN_TILE_TICKS
-        ? `frozen ${(frozenFor / 50).toFixed(1)}s where there is no way back to the game`
-        : `frozen without a break for ${(frozenFor / 50).toFixed(1)}s${inTiles ? " standing in the tiles" : ""} (a strong player's longest in an hour is 4.0s)`;
-      if (this.requestAutoKill(client, reason)) return;
+
+    const wbDef = this.wbHolding();
+    const wbLying =
+      wbDef !== null &&
+      !(["left", "right"] as const).some((s) => inAnyBox(sideDef(wbDef, s).zone, Math.trunc(self.pos.x / 32), Math.trunc(self.pos.y / 32))) &&
+      self.frozen &&
+      this.world.collision.isFreeze(self.pos.x, self.pos.y) &&
+      !hooked &&
+      !helped &&
+      Math.hypot(self.vel.x, self.vel.y) < 0.5 &&
+      frozenFor >= WB_LYING_TICKS;
+    if (wbLying && this.world.tick - this.lastKillTick >= WB_KILL_COOLDOWN_TICKS) {
+      this.lastKillTick = this.world.tick;
+      this.stuckAnchor = null;
+      this.frozenSince = -1;
+      this.stats.selfKills++;
+      this.log(`WB: lying in the freeze tiles for ${(frozenFor / 50).toFixed(1)}s with no rope on it -> /kill`);
+      try {
+        client.game.Kill();
+      } catch {
+
+      }
+      return;
+    }
+    if (overdue && this.world.tick - this.lastKillTick >= KILL_COOLDOWN_TICKS) {
+      this.lastKillTick = this.world.tick;
+      this.stuckAnchor = null;
+      this.frozenSince = -1;
+      this.stats.selfKills++;
+      this.log(
+        trapped && frozenFor < FROZEN_IN_TILE_TICKS
+          ? `frozen ${(frozenFor / 50).toFixed(1)}s where there is no way back to the game -> /kill`
+          : `frozen without a break for ${(frozenFor / 50).toFixed(1)}s${inTiles ? " standing in the tiles" : ""} (a strong player's longest in an hour is 4.0s) -> /kill`,
+      );
+      try {
+        client.game.Kill();
+      } catch {
+
+      }
+      return;
     }
 
     if (this.stuckAnchor === null || vdistance(self.pos, this.stuckAnchor) > STUCK_RADIUS || self.frozen !== this.stuckAnchorFrozen) {
@@ -3320,8 +4354,22 @@ export class DdnetBot {
 
       if (!this.world.collision.isFreeze(self.pos.x, self.pos.y)) return;
     }
+
+    if (!self.frozen) {
+      const held = this.targetId >= 0 ? this.world.getTee(this.targetId) : undefined;
+      if (held !== undefined && held.alive && held.frozen && (this.duelNow() || self.hookedPlayer === held.id || vdistance(self.pos, held.pos) < TUNING.hookLength)) return;
+    }
+    if (this.world.tick - this.lastKillTick < KILL_COOLDOWN_TICKS) return;
+    this.lastKillTick = this.world.tick;
     const wallMs = Date.now() - this.stuckAnchorMs;
-    this.requestAutoKill(client, `stuck for ${(stuckTicks / 50).toFixed(1)}s of server ticks (${wallMs}ms wall clock)${self.frozen ? " (frozen)" : ""}`);
+    this.stuckAnchor = null;
+    this.stats.selfKills++;
+    this.log(`stuck for ${(stuckTicks / 50).toFixed(1)}s of server ticks (${wallMs}ms wall clock)${self.frozen ? " (frozen)" : ""} -> /kill`);
+    try {
+      client.game.Kill();
+    } catch {
+
+    }
   }
 
   private planAction(ownId: number, targetId: number, self: TeeState): PlayerInput {
@@ -3406,10 +4454,14 @@ export class DdnetBot {
       spare.map((t) => ({ x: t.pos.x, y: t.pos.y })),
       spare.map((t) => ({ x: t.vel.x, y: t.vel.y })),
     );
+    planner.setOverrides(this.wbPlanOverrides(self));
+    planner.setBand(this.wbBand(self));
+    planner.setLiveTick(this.world.tick);
     let out = planner.decide(sim, ownId, targetId, this.prevInput, enemyInput);
 
-    if (out.hook !== 0 && spare.length > 0) {
-      const holding = self.hookedPlayer >= 0 && spare.some((t) => t.id === self.hookedPlayer);
+    if (out.hook !== 0 && (spare.length > 0 || self.hookedPlayer >= 0)) {
+
+      const holding = self.hookedPlayer >= 0 && (spare.some((t) => t.id === self.hookedPlayer) || this.isFriendId(self.hookedPlayer));
       if (holding || (self.hookState === HOOK_IDLE && this.ropeCatches(self, out, spare, target))) out = { ...out, hook: 0 };
     }
     this.lastPlan = {
@@ -3422,6 +4474,23 @@ export class DdnetBot {
       ...planner.lastInfo,
     };
     return out;
+  }
+
+  private wbBand(self: TeeState): { x0: number; y0: number; x1: number; y1: number } | null {
+    const def = this.wbHolding();
+    const side = this.wbChooser.side;
+    if (def === null || side === null || !inWbHall(def, side, Math.trunc(self.pos.x / 32), Math.trunc(self.pos.y / 32))) return null;
+    const sd = sideDef(def, side);
+    const foot = sd.crossing.exit[sd.crossing.exit.length - 1];
+    const top = sd.zone[0];
+    return { x0: (foot.x0 - 1) * 32, x1: (foot.x1 + 2) * 32, y0: (top.y0 + 1) * 32, y1: (top.y1 - 2) * 32 };
+  }
+
+  private wbPlanOverrides(self: TeeState): Partial<PlannerConfig> | null {
+    const def = this.wbHolding();
+    const side = this.wbChooser.side;
+    if (def === null || side === null || !inWbHall(def, side, Math.trunc(self.pos.x / 32), Math.trunc(self.pos.y / 32))) return null;
+    return WB_PLAN_OVERRIDES;
   }
 
   private ropeCatches(self: TeeState, input: PlayerInput, tees: readonly TeeState[], before?: TeeState): boolean {
@@ -3489,7 +4558,7 @@ export class DdnetBot {
     return { held: at(0), inFlight };
   }
 
-  private wander(client: TwClient, self: TeeState): void {
+  private wander(client: TwClient, self: TeeState, anchorX?: number, lookAt?: Vec2): void {
     if (!this.collisionReady || !this.acting) {
       this.idle();
       return;
@@ -3500,11 +4569,18 @@ export class DdnetBot {
 
       this.wanderDir = this.wanderRng.nextFloat() < 0.22 ? 0 : this.wanderRng.nextFloat() < 0.5 ? -1 : 1;
       this.wanderUntilTick = tick + 25 + Math.floor(this.wanderRng.nextFloat() * 175);
-      this.wanderAim = (this.wanderRng.nextFloat() * 2 - 1) * Math.PI;
+      this.wanderLook = this.wanderRng.nextFloat() * 2 - 1;
+      this.wanderAim = this.wanderLook * Math.PI;
+    }
+    if (lookAt !== undefined) this.wanderAim = Math.atan2(lookAt.y - self.pos.y, lookAt.x - self.pos.x) + this.wanderLook * 0.2;
+
+    const col = this.world.collision;
+    if (anchorX !== undefined && this.wanderDir !== 0 && Math.abs(self.pos.x - anchorX) > 48 && Math.sign(anchorX - self.pos.x) !== this.wanderDir) {
+      this.wanderDir = -this.wanderDir;
+      this.wanderUntilTick = tick + 40;
     }
 
     const ahead = { x: self.pos.x + this.wanderDir * 40, y: self.pos.y };
-    const col = this.world.collision;
     if (this.wanderDir !== 0 && col !== undefined) {
       const blocked = col.isSolid(ahead.x, ahead.y) || col.isFreeze(ahead.x, ahead.y) || col.isDeath(ahead.x, ahead.y);
       const drop = !col.isSolid(ahead.x, self.pos.y + 40) && !col.isSolid(ahead.x, self.pos.y + 80);
@@ -3519,10 +4595,10 @@ export class DdnetBot {
     else if (this.wanderDir > 0) mv.RunRight();
     else mv.RunStop();
 
-    if (tick >= this.wanderJumpUntilTick && this.wanderRng.nextFloat() < 0.03) {
+    if (anchorX === undefined && tick >= this.wanderJumpUntilTick && this.wanderRng.nextFloat() < 0.03) {
       this.wanderJumpUntilTick = tick + 3 + Math.floor(this.wanderRng.nextFloat() * 8);
     }
-    if (tick >= this.wanderHookUntilTick && this.wanderRng.nextFloat() < 0.02) {
+    if (anchorX === undefined && tick >= this.wanderHookUntilTick && this.wanderRng.nextFloat() < 0.02) {
       this.wanderHookUntilTick = tick + 15 + Math.floor(this.wanderRng.nextFloat() * 35);
     }
     let jump = tick < this.wanderJumpUntilTick;

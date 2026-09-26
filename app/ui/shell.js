@@ -96,7 +96,7 @@ function render(s) {
     const frame = $("#bot");
     const base = `http://127.0.0.1:${s.port}/`;
 
-    const page = `${base}?lang=${LANG}`;
+    const page = `${base}?lang=${LANG}&run=${s.readyCount}`;
     const key = `${s.port}|${s.readyCount}`;
     if (key !== frameKey) {
       frameKey = key;
@@ -291,19 +291,24 @@ async function openSetup(mode) {
   $("#f-name").value = s.name;
   $("#f-clan").value = s.clan;
   $("#f-skin").value = s.skin;
-  $("#f-killDelay").value = String(s.killDelay ?? 0);
-  $("#f-mentionReply").value = s.mentionReply ?? "";
   $("#f-password").value = "";
   passClear = false;
   passSaved = s.hasPassword;
   passServer = s.server;
   renderPassHint();
   for (const r of document.querySelectorAll("input[name=brain]")) r.checked = r.value === s.brain;
+  $("#f-dummy").checked = s.dummy === true;
+  $("#f-dummyName").value = s.dummyName || "";
+  $("#f-lowCpu").checked = s.lowCpu === true;
+
+  const test = s.brain !== "planner";
+  $(".brains").classList.toggle("all", test);
+  $("#brains-more").hidden = test;
   const first = mode === "first";
   $("#setup-title").textContent = first ? t("Первый запуск") : t("Бот: сервер, ник, скин");
   $("#setup-sub").textContent = first
     ? t("Пара полей, и бот пойдёт играть. Потом всё это меняется в настройках.")
-    : t("Сервер и мозг перезапустят бота; имя, клан, скин и задержка смерти применяются сразу.");
+    : t("После сохранения бот перезапустится с новыми настройками.");
   $("#setup-save-lbl").textContent = first ? t("Сохранить и запустить") : t("Сохранить и перезапустить");
   $("#setup-cancel").hidden = first;
   clearErrors();
@@ -339,9 +344,10 @@ function readForm() {
     name: $("#f-name").value,
     clan: $("#f-clan").value,
     skin: $("#f-skin").value,
-    killDelay: $("#f-killDelay").value,
-    mentionReply: $("#f-mentionReply").value,
     brain: (document.querySelector("input[name=brain]:checked") || { value: "planner" }).value,
+    dummy: $("#f-dummy").checked ? "on" : "off",
+    dummyName: $("#f-dummyName").value,
+    lowCpu: $("#f-lowCpu").checked ? "on" : "off",
   };
   const pass = $("#f-password").value;
 
@@ -377,6 +383,10 @@ $("#setup-cancel").addEventListener("click", () => {
   if (startOpen) $("#screen-start").hidden = false;
 });
 $("#f-pick").addEventListener("click", () => openDrawer("servers"));
+$("#brains-more").addEventListener("click", () => {
+  $(".brains").classList.add("all");
+  $("#brains-more").hidden = true;
+});
 
 function openDrawer(name) {
 
@@ -635,6 +645,8 @@ async function loadPrefs() {
   $("#st-notify").checked = prefsCache.notifications;
   $("#st-start").checked = prefsCache.startScreen !== false;
   $("#st-tray").checked = prefsCache.closeToTray;
+  $("#st-gpu").checked = prefsCache.gpu !== false;
+  $("#st-autoupdate").checked = prefsCache.autoUpdate !== false;
   $("#st-tray").disabled = !prefsCache.trayAvailable;
   $("#st-login").checked = prefsCache.openAtLogin;
   $("#st-login-row").hidden = !prefsCache.loginSupported;
@@ -643,7 +655,8 @@ async function loadPrefs() {
   $("#st-lang").value = prefsCache.lang;
   const data = await api.setup.get();
   const s = data.settings;
-  $("#st-edit-sub").textContent = `${s.name}${s.clan ? ` [${s.clan}]` : ""} · ${s.server === "auto" ? t("сервер сам") : s.server} · ${brainName(s.brain)}`;
+  const extra = [s.dummy ? t("второй бот {name}", { name: s.dummyName || t("вкл") }) : "", s.lowCpu ? t("режим для слабого ПК") : ""].filter((x) => x !== "");
+  $("#st-edit-sub").textContent = [`${s.name}${s.clan ? ` [${s.clan}]` : ""}`, s.server === "auto" ? t("сервер сам") : s.server, brainName(s.brain), ...extra].join(" · ");
 }
 
 function brainName(b) {
@@ -657,7 +670,15 @@ async function setPref(patch) {
 }
 $("#st-notify").addEventListener("change", (e) => setPref({ notifications: e.target.checked }));
 $("#st-start").addEventListener("change", (e) => setPref({ startScreen: e.target.checked }));
+$("#st-autoupdate").addEventListener("change", async (e) => {
+  const res = await setPref({ autoUpdate: e.target.checked });
+  if (res.ok) toast({ text: t("Настройка применится после перезапуска бота"), kind: "info" });
+});
 $("#st-tray").addEventListener("change", (e) => setPref({ closeToTray: e.target.checked }));
+$("#st-gpu").addEventListener("change", async (e) => {
+  const res = await setPref({ gpu: e.target.checked });
+  if (res.ok) toast({ text: t("Применится после перезапуска окна"), kind: "info" });
+});
 $("#st-login").addEventListener("change", (e) => setPref({ openAtLogin: e.target.checked }));
 
 $("#st-lang").addEventListener("change", (e) => setPref({ lang: e.target.value }));

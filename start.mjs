@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -105,13 +105,28 @@ async function main() {
   };
 
   const settingsFile = path.join(HERE, "settings.json");
-  let saved = {};
-  if (flags.setup === undefined) {
+
+  const DAMAGED = Symbol("damaged");
+  const readSettingsFile = () => {
+    let text;
     try {
-      saved = JSON.parse(readFileSync(settingsFile, "utf8"));
+      text = readFileSync(settingsFile, "utf8");
     } catch {
-      saved = {};
+      return null;
     }
+    try {
+      const v = JSON.parse(text.replace(/^\uFEFF/, ""));
+      return v !== null && typeof v === "object" && !Array.isArray(v) ? v : DAMAGED;
+    } catch {
+      return DAMAGED;
+    }
+  };
+  let saved = {};
+  let settingsDamaged = false;
+  if (flags.setup === undefined) {
+    const got = readSettingsFile();
+    settingsDamaged = got === DAMAGED;
+    saved = got === null || got === DAMAGED ? {} : got;
   }
   const remembered = Object.keys(saved).length > 0;
   setLang(isLang(flags.lang) ? flags.lang : detectLang(process.env, saved.lang));
@@ -218,13 +233,17 @@ ${line(56)}
 
     let onDisk = saved;
     if (flags.setup !== undefined) {
-      try {
-        onDisk = JSON.parse(readFileSync(settingsFile, "utf8"));
-      } catch {
-        onDisk = {};
-      }
+      const got = readSettingsFile();
+      settingsDamaged = got === DAMAGED;
+      onDisk = got === null || got === DAMAGED ? {} : got;
     }
     const keep = typeof onDisk === "object" && onDisk !== null && !Array.isArray(onDisk) ? onDisk : {};
+
+    if (settingsDamaged) {
+      const aside = `${settingsFile}.bad-${Date.now()}`;
+      renameSync(settingsFile, aside);
+      console.log(t("settings.json не читается; сохранён как {file}, записаны новые настройки", { file: path.basename(aside) }));
+    }
 
     const answers = JSON.stringify({ server: autoServer ? "auto" : serverText, name, clan, skin, password, brain: bold ? "bold" : usePlanner ? "planner" : "scripted" });
     writeFileSync(settingsFile, JSON.stringify({ ...keep, ...JSON.parse(answers) }, null, 2));
@@ -238,6 +257,11 @@ ${line(56)}
   const { BotConsole } = await import("./src/bot/console.ts");
   const { PLANNER_BOLD } = await import("./src/bot/bot.ts");
   const { RecurrentPolicy } = await import("./src/nn/gru.ts");
+  const { lowCpuWanted } = await import("./src/bot/cpuLoad.ts");
+
+  const flagOff = (v) => typeof v === "string" && ["off", "false", "no", "0"].includes(v.trim().toLowerCase());
+  const flagOnWord = (v) => typeof v !== "string" || ["", "on", "true", "yes", "1"].includes(v.trim().toLowerCase());
+  const lowCpu = flags["low-cpu"] !== undefined ? !flagOff(flags["low-cpu"]) : lowCpuWanted(saved.lowCpu);
 
   const loadFrom = policyFile ?? policies[0];
   let policy;
@@ -276,8 +300,6 @@ ${line(56)}
     name,
     clan: clan || undefined,
     skin,
-    killDelayMs: Number.isFinite(Number(saved.killDelay)) ? Math.max(0, Number(saved.killDelay) * 1000) : 0,
-    mentionReply: typeof saved.mentionReply === "string" ? saved.mentionReply : undefined,
     password: password || undefined,
     policy,
     scripted: !policyFile && !usePlanner,
@@ -286,6 +308,7 @@ ${line(56)}
     opponentDirNet,
     mapDir: path.join(HERE, "maps"),
     settingsFile,
+    lowCpu,
     autoServer,
     autoAvoidFile: avoidFile,
     protocolVersion: flags["protocol-version"] === undefined ? undefined : Number(flags["protocol-version"]),
@@ -297,6 +320,97 @@ ${line(56)}
 
     verbose: false,
   });
+
+  const dummyFlag = flags.dummy;
+
+  const dummyWanted = dummyFlag !== undefined ? !flagOff(dummyFlag) : lowCpuWanted(saved.dummy);
+  let dummy = null;
+  let dummyName = "";
+  if (dummyWanted) {
+    const given = dummyFlag !== undefined && !flagOnWord(dummyFlag) ? dummyFlag.trim() : typeof saved.dummyName === "string" ? saved.dummyName.trim() : "";
+    dummyName = (given || `${name.slice(0, 14)}2`).slice(0, 15);
+    if (dummyName === name) dummyName = `${name.slice(0, 14)}${name.endsWith("2") ? "3" : "2"}`;
+    const dir = path.join(HERE, "runs", "dummy");
+    const scriptedOnly = !policyFile && !usePlanner;
+
+    const { DummyThread, listUpdates, shareableLists } = await import("./src/bot/dummyThread.ts");
+    let sentLists = shareableLists(bot.relationsInfo(), dummyName);
+    const relations = [...sentLists.values()];
+    dummy = new DummyThread({
+      cfg: {
+        host,
+        port,
+        name: dummyName,
+        clan: clan || undefined,
+        skin,
+        password: password || undefined,
+        scripted: scriptedOnly,
+        planner: !scriptedOnly,
+        plannerCfg: bold ? PLANNER_BOLD : undefined,
+        mapDir: path.join(HERE, "maps"),
+        relationsFile: path.join(dir, "relations.json"),
+        memoryDir: path.join(dir, "memory"),
+        clipDir: path.join(dir, "clips"),
+
+        lowCpu,
+        chat: false,
+        reconnect: true,
+        verbose: false,
+      },
+      opponentFile: opponentDirNet ? oppFile : undefined,
+      relations,
+      teammate: name,
+      lang: getLang(),
+    });
+    bot.setTeammate(dummyName);
+
+    const partnerOf = (d) => (d.phase === "online" && d.selfId >= 0 ? d.selfId : -1);
+    dummy.onStatus((d) => bot.setPartnerId(partnerOf(d)));
+    const partnerTimer = setInterval(() => {
+      bot.setPartnerId(partnerOf(dummy.status()));
+      const mine = bot.ownClientId();
+      dummy.setPartnerId(mine >= 0 ? mine : -1);
+    }, 100);
+    partnerTimer.unref?.();
+
+    bot.onRelationsSaved = () => {
+      const now = shareableLists(bot.relationsInfo(), dummyName);
+      for (const [list, n, on] of listUpdates(sentLists, now)) dummy.setRelation(list, n, on);
+      sentLists = now;
+    };
+
+    const ownStatus = bot.status.bind(bot);
+    bot.status = () => {
+      const d = dummy.status();
+      return { ...ownStatus(), dummy: { name: dummyName, phase: d.phase, frozen: d.frozen, acting: d.acting, mode: d.mode, wb: d.wb, target: d.target, id: d.selfId, duelScore: d.duelScore } };
+    };
+
+    const { bothBotsDuels, readDuelFile } = await import("./src/bot/bot.ts");
+    const ownDuels = bot.duelList.bind(bot);
+    bot.duelList = () => bothBotsDuels(ownDuels(), name, readDuelFile(path.join(dir, "duels.json")), dummyName);
+    const own = bot.handleConsole.bind(bot);
+    bot.handleConsole = (lineIn) => {
+
+      if (/^\s*[!?]lang\b/i.test(lineIn)) {
+        const reply = own(lineIn);
+        void dummy.handleConsole(`!lang ${getLang()}`);
+        return reply;
+      }
+
+      if (/^\s*[!?]low\b/i.test(lineIn)) {
+        const reply = own(lineIn);
+
+        void dummy.handleConsole(bot.lowCpuOn ? "!low on" : "!low off");
+        return reply;
+      }
+      const m = /^\s*[!?]d(?:\s+(.*))?$/.exec(lineIn);
+      if (m === null) return own(lineIn);
+      const rest = (m[1] ?? "").trim();
+      if (rest === "") return `${dummyName}: !d <command>, e.g. !d wb left, !d stop, !d where`;
+
+      return dummy.handleConsole(rest.startsWith("!") || rest.startsWith("?") ? rest : `!${rest}`).then((r) => `${dummyName}: ${r}`);
+    };
+  }
 
   console.log(`
 ${line(56)}
@@ -314,7 +428,21 @@ ${line(56)}
       const { currentVersion } = await import("./src/bot/autoUpdate.ts");
       web = await startWebUi(bot, Number(flags["web-port"] ?? 7777), currentVersion(HERE));
       const url = `http://localhost:${web.port}`;
-      bot.onOutput((l) => web.push(l));
+
+      const mirror = flags["ready-line"] !== undefined;
+      bot.onOutput((l) => {
+        web.push(l);
+        if (!mirror || l.kind === "log") return;
+        const who = l.from ?? "?";
+        console.log(l.kind === "chat" ? `<${who}> ${l.text}` : l.kind === "whisper" ? `[w] <${who}> ${l.text}` : l.text);
+      });
+
+      dummy?.onOutput((l) => {
+        if (l.kind === "chat") return;
+        const tagged = { ...l, text: `[${dummyName}] ${l.text}` };
+        web.push(tagged);
+        if (mirror && l.kind !== "log") console.log(tagged.text);
+      });
       console.log(`  ${C.bl}\u25b8${C.r} ${C.b}${url}${C.r} ${C.f}${t("окно бота")}${C.r}`);
 
       if (flags["ready-line"] !== undefined) console.log(`WEBUI_READY ${web.port}`);
@@ -353,12 +481,8 @@ ${line(56)}
       stopAutoUpdate = updater.stop;
 
       bot.checkUpdate = async () => {
-        let said = "";
-        const before = currentVersion(HERE);
-        await updater.check();
-        const after = currentVersion(HERE);
-        said = after !== before ? t("обновлено до {sha}", { sha: after.slice(0, 7) }) : t("обновлений нет, стоит свежая версия");
-        return said;
+        const r = await updater.check();
+        return r.kind === "current" || r.text === "" ? t("обновлений нет, стоит свежая версия") : r.text;
       };
     } catch {
 
@@ -368,9 +492,10 @@ ${line(56)}
   let stopping = false;
   const stop = async (code = 0) => {
     if (stopping) return;
+    stopping = true;
+    await dummy?.stop().catch(() => {});
     stopAutoUpdate?.();
     web?.close();
-    stopping = true;
     ui?.stop();
     console.log(`\n${t("Отключаюсь...")}`);
     await bot.stop().catch(() => {});
@@ -405,6 +530,13 @@ ${line(56)}
   process.on("SIGINT", stop);
   if (ui !== null && typeof ui.start === "function") ui.start();
 
+  if (dummy !== null) {
+
+    if (web === null) dummy.onOutput((l) => { if (l.kind !== "chat" && l.kind !== "log") console.log(`[${dummyName}] ${l.text}`); });
+    setTimeout(() => {
+      dummy.start().catch((err) => console.log(`[${dummyName}] ${err instanceof Error ? err.message : String(err)}`));
+    }, 3000);
+  }
   await bot.start();
 }
 
