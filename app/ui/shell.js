@@ -38,7 +38,10 @@ $("#titlebar").addEventListener("dblclick", (e) => {
 $("#b-dummy").addEventListener("click", () => api.bot.toggleDummy());
 $("#b-pause").addEventListener("click", () => api.bot.togglePause());
 $("#b-reset").addEventListener("click", () => api.bot.reset());
-$("#b-disconnect").addEventListener("click", () => api.bot.disconnect());
+$("#b-disconnect").addEventListener("click", () => {
+  if (state && state.botState === "running") void api.bot.disconnect();
+  else void api.bot.reconnect();
+});
 $("#b-reconnect").addEventListener("click", () => api.bot.reconnect());
 $("#b-mini").addEventListener("click", () => api.window.setMini(!(state && state.mini)));
 $("#b-pin").addEventListener("click", () => api.window.setOnTop(!(state && state.onTop)));
@@ -82,7 +85,12 @@ function render(s) {
   pause.querySelector(".ic").className = `ic ic-${s.paused ? "play" : "pause"}`;
   $("#b-pause-lbl").textContent = s.paused ? t("Играть") : t("Пауза");
   pause.title = `${s.paused ? t("Продолжить игру") : t("Пауза: бот встанет на месте")} (${prettyKey(s.hotkey)})`;
-  $("#b-disconnect").disabled = !running;
+  const canConnect = s.screen === "app" && s.botState === "idle";
+  const disconnect = $("#b-disconnect");
+  disconnect.disabled = !running && !canConnect;
+  disconnect.querySelector(".lbl").textContent = running ? "Disconnect" : "Connect";
+  disconnect.querySelector(".ic").className = `ic ic-${running ? "log-out" : "log-in"}`;
+  disconnect.title = running ? "Отключить бота" : "Подключить бота";
   $("#b-reset").disabled = !running;
   $("#b-reconnect").disabled = s.screen === "noroot";
   $("#b-pin").classList.toggle("on", s.onTop);
