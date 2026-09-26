@@ -2081,6 +2081,7 @@ export class DdnetBot {
       // Clear a war/target selection even when the bot itself delivered the
       // last hit.  The killer branch below used to skip this reset, leaving
       // the bot locked on a dead player or the spawn position.
+      this.cfg.targetName = undefined;
       this.targetId = -1;
       this.emit("event", `target ${this.nameOfLive(kill.victim_id)} died; selecting a new target`);
     }
