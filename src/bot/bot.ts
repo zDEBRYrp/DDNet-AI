@@ -3852,7 +3852,10 @@ export class DdnetBot {
   }
 
   private rescueFriend(client: TwClient, self: TeeState, fighting = false): boolean {
-    if (self.frozen || this.mode !== "fight") return false;
+    // Passive means "do not initiate fights", not "ignore teammates".  A
+    // frozen friend is still an explicit rescue obligation in that mode;
+    // hold/goto and duel keep their stricter movement semantics.
+    if (self.frozen || (this.mode !== "fight" && this.mode !== "passive")) return false;
     if (fighting && this.world.allTees().some((t) => t.id !== this.ownId && t.alive && t.hookedPlayer === this.ownId && !this.isFriendId(t.id))) return false;
     const cands = this.world
       .allTees()
