@@ -2522,6 +2522,11 @@ export class DdnetBot {
         this.log("the friend it was walking to needs no rescue now; ending the walk");
         this.endNav();
       }
+      // Navigation used to win unconditionally here.  That made a route to
+      // home/WB keep driving while a frozen teammate was already close enough
+      // to rescue.  Rescue is an interruptible emergency; once it succeeds,
+      // the normal route is rebuilt by the next snapshot.
+      if (this.nav !== null && !this.duelNow() && this.rescueFriend(client, self)) return;
       if (this.nav !== null) {
 
         if (
