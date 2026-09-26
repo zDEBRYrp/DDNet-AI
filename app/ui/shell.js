@@ -83,7 +83,7 @@ function render(s) {
   dummyBtn.disabled = !running;
   dummyBtn.classList.toggle("on", dummyOn);
   dummyBtn.classList.toggle("paused", dummyConfigured && !dummyOn);
-  $("#b-dummy-lbl").textContent = dummyOn ? t("Dummy в игре") : dummyConfigured ? t("Dummy подключается") : t("Dummy");
+  $("#b-dummy-lbl").textContent = dummyOn ? t("Отключить Dummy") : dummyConfigured ? t("Dummy подключается") : t("Подключить Dummy");
   dummyBtn.title = dummyOn ? t("Отключить второго тиммейта") : t("Подключить второго тиммейта");
   $("#b-reconnect").disabled = s.screen === "noroot";
   $("#b-pin").classList.toggle("on", s.onTop);

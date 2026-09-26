@@ -528,7 +528,7 @@ function main() {
   }
 
   const summary = (s) =>
-    s === null ? null : [s.phase, s.mode, s.acting, s.server, s.name, s.targetName, s.brain, s.offlineReason];
+    s === null ? null : [s.phase, s.mode, s.acting, s.server, s.name, s.targetName, s.brain, s.offlineReason, s.dummy?.phase, s.dummy?.name, s.dummy?.mode, s.dummy?.acting];
 
   function stopPolling() {
     if (pollTimer !== null) clearInterval(pollTimer);
