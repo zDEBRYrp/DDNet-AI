@@ -2481,7 +2481,11 @@ export class DdnetBot {
       let picked: number | undefined;
 
       const walkingTo = this.rescueId >= 0 ? this.world.getTee(this.rescueId) : undefined;
-      if (this.nav !== null && this.rescueId >= 0 && (!this.rescuable(self, walkingTo) || this.inFreezeTiles(walkingTo.pos))) {
+      // Being on a freeze tile is not a reason to abandon rescue: it is the
+      // urgent case where the friend must be reached and pulled out.  The
+      // old second condition cancelled the walk exactly when the teammate
+      // needed help most, leaving the bot watching from a distance.
+      if (this.nav !== null && this.rescueId >= 0 && !this.rescuable(self, walkingTo)) {
         this.log("the friend it was walking to needs no rescue now; ending the walk");
         this.endNav();
       }
