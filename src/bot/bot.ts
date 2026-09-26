@@ -694,6 +694,7 @@ export class DdnetBot {
   private navPending = false;
   private ownId = -1;
   private targetId = -1;
+  private chargeTargetName: string | undefined;
   private prevInput: PlayerInput = emptyInput();
 
   private sent: { tick: number; input: PlayerInput }[] = [];
@@ -1414,6 +1415,7 @@ export class DdnetBot {
       case "target": {
         if (arg === "" || arg === "-") {
           this.cfg.targetName = undefined;
+          this.chargeTargetName = undefined;
           return "target cleared, back to picking automatically";
         }
 
@@ -1423,6 +1425,7 @@ export class DdnetBot {
         if (hits.length > 1) return `target: '${arg}' matches ${hits.length} players: ${hits.join(", ")} -- be more specific`;
         const name = hits.length === 1 ? hits[0] : arg;
         this.cfg.targetName = name;
+        this.chargeTargetName = cmd.toLowerCase() === "charge" ? name : undefined;
         return cmd.toLowerCase() === "charge"
           ? hits.length === 1
             ? `charging '${name}' until they are frozen`
@@ -2040,6 +2043,13 @@ export class DdnetBot {
 
     this.lastTouch.delete(kill.victim_id);
     this.thawTickById.delete(kill.victim_id);
+    if (this.chargeTargetName !== undefined && kill.victim_id === this.targetId) {
+      const name = this.chargeTargetName;
+      this.chargeTargetName = undefined;
+      this.cfg.targetName = undefined;
+      this.targetId = -1;
+      this.emit("event", `charge finished: ${name} died after the freeze`);
+    }
     if (this.ownId < 0) return;
 
     const seen = this.lastInputById.get(kill.victim_id);
