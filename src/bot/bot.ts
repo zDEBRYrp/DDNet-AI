@@ -3112,6 +3112,7 @@ export class DdnetBot {
       const d = vdistance(selfPos, tee.pos);
       if (d > TARGET_MAX_PX) continue;
       const interfering = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id || this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
+      const threatening = this.world.tick - tee.attackTick < AGGRESSOR_MEMORY_TICKS && d < AGGRESSOR_RANGE_PX;
       let inWb = false;
       if (wb !== null && wbSide !== null) {
         const ttx = Math.trunc(tee.pos.x / 32);
@@ -3120,7 +3121,10 @@ export class DdnetBot {
 
         const atUs = this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
 
-        if (!roped && !atWar && (meInLeash ? !inWbLeash(wb, wbSide, ttx, tty) : !atUs)) continue;
+        // A nearby player who has just attacked us is a real WB threat even
+        // when he is standing outside the entrance leash.  The old filter
+        // discarded him before the aggressor score could see him.
+        if (!roped && !atWar && !interfering && !threatening && (meInLeash ? !inWbLeash(wb, wbSide, ttx, tty) : !atUs)) continue;
         inWb = inWbZone(wb, wbSide, ttx, tty);
       }
 
@@ -3163,7 +3167,7 @@ export class DdnetBot {
       if (finishing && d < BLOCKING_RANGE_PX) score += FINISH_BLOCK_SCORE;
 
       if (wbFinish && WB_THAW_URGENCY > 0) score += WB_THAW_URGENCY * (1 - Math.min(1, tee.freezeTicksLeft / 150));
-      if (this.world.tick - tee.attackTick < AGGRESSOR_MEMORY_TICKS && d < AGGRESSOR_RANGE_PX) score += 500;
+      if (threatening) score += 500;
       if (this.world.tick - (this.atFriendById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS) score += AT_FRIEND_SCORE;
       const prev = this.lastSeenDist.get(tee.id);
       if (prev !== undefined && d < prev - 1) score += 200;
