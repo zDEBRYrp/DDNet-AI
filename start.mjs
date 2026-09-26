@@ -329,6 +329,7 @@ ${line(56)}
   const applyMainProfile = bot.setProfile.bind(bot);
   bot.setProfile = (profile) => {
     const reply = applyMainProfile(profile);
+    if (typeof profile.name === "string" && profile.name.trim() !== "") dummy?.setTeammate(profile.name);
     dummy?.setProfile({
       ...(typeof profile.name === "string" ? { name: profile.name } : {}),
       ...(typeof profile.clan === "string" ? { clan: profile.clan } : {}),

@@ -3710,7 +3710,16 @@ export class DdnetBot {
   private relationsVersion = 2;
   setTeammate(name: string): void {
     const what = name.trim();
-    if (what === "") return;
+    const old = [...this.teammates];
+    for (const key of old) {
+      this.teammates.delete(key);
+      this.partnerKeys.delete(key);
+      this.relations.friend.delete(key);
+    }
+    if (what === "") {
+      if (old.length > 0) this.saveRelations();
+      return;
+    }
     const who = what.toLowerCase();
 
     if (this.relationsVersion < 2) {

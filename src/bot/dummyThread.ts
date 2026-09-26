@@ -39,7 +39,8 @@ export type ToDummy =
   | { t: "console"; id: number; line: string }
   | { t: "relation"; list: List; name: string; on: boolean }
   | { t: "partner"; id: number | null }
-  | { t: "profile"; name?: string; clan?: string; skin?: string };
+  | { t: "profile"; name?: string; clan?: string; skin?: string }
+  | { t: "teammate"; name: string };
 
 export type FromDummy =
   | { t: "out"; line: BotLine }
@@ -214,6 +215,13 @@ export class DummyThread {
   setProfile(profile: { name?: string; clan?: string; skin?: string }): void {
     this.init.cfg = { ...this.init.cfg, ...profile };
     this.send({ t: "profile", ...profile });
+  }
+
+  setTeammate(name: string): void {
+    const what = name.trim();
+    if (what === "") return;
+    this.init.teammate = what;
+    this.send({ t: "teammate", name: what });
   }
 
   stop(): Promise<void> {

@@ -76,6 +76,9 @@ port.on("message", (m: ToDummy) => {
     case "profile":
       bot.setProfile(m);
       return;
+    case "teammate":
+      bot.setTeammate(m.name);
+      return;
     case "stop":
       clearInterval(statusTimer);
       clearInterval(idTimer);
