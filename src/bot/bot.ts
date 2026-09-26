@@ -216,7 +216,7 @@ const WB_THAW_URGENCY = Number(process.env.WB_URGENCY ?? "0");
 
 const WB_PLAN_OVERRIDES: Partial<PlannerConfig> = process.env.WB_PLAN
   ? (JSON.parse(process.env.WB_PLAN) as Partial<PlannerConfig>)
-  : { noThawRope: true, frozenThrow: 3, airJumpCost: 0.3, launchExactReach: 100 };
+  : { noThawRope: true, freezeThrow: 4, frozenThrow: 4, airJumpCost: 0.3, launchExactReach: 100 };
 
 function onWbSpot(here: { tx: number; ty: number }, p: { tx: number; ty: number }): boolean {
   return Math.abs(here.tx - p.tx) <= 2 && Math.abs(here.ty - p.ty) <= 2;
