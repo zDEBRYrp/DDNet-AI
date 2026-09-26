@@ -937,11 +937,12 @@ export class DdnetBot {
     return this.chatMode();
   }
 
-  private autoSay(text: string, line: string | null = null): void {
+  private autoSay(text: string, line: string | null = null): boolean {
     const ok = this.say(text, this.chatTeam);
     this.autoChat.sent(text, ok);
     if (ok) this.emit("event", `auto chat: ${text}`);
-    if (line === null || !/^\/accept\b/.test(text.trim().toLowerCase())) return;
+    else this.emit("event", `auto chat queued (chat cooldown or offline): ${text}`);
+    if (line === null || !/^\/accept\b/.test(text.trim().toLowerCase())) return ok;
     if (ok) {
       this.answeredInvitation(line);
       this.armAcceptUntil = 0;
@@ -949,6 +950,7 @@ export class DdnetBot {
       this.armAcceptLine = line;
       this.armAcceptUntil = Date.now() + AUTO_ACCEPT_HOLD_MS;
     }
+    return ok;
   }
 
   private answeredInvitation(line: string): void {
@@ -2238,8 +2240,8 @@ export class DdnetBot {
       this.aiLastReplyMs = Date.now();
       this.aiStatus = { state: "ok", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer, error: null };
       const line = `${who}: ${answer}`;
-      this.autoSay(line);
-      this.emit("event", `AI чат: ответ ${line}`);
+      const sent = this.autoSay(line);
+      this.emit("event", `AI чат: ответ ${line}${sent ? " (отправлен)" : " (ожидает отправки)"}`);
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       const cfg = this.autoChat.config().ai;
