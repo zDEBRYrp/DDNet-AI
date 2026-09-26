@@ -3177,9 +3177,29 @@ export class DdnetBot {
 
       const want = foldName(this.cfg.targetName);
       const info = snap.AllObjClientInfo.find((c) => foldName(c.name ?? "") === want);
-      if (!info || info.id === ownId) return -1;
+      if (!info || info.id === ownId) {
+        if (this.targetId >= 0 || this.chargeTargetName !== undefined) {
+          const stale = this.cfg.targetName;
+          this.cfg.targetName = undefined;
+          this.chargeTargetName = undefined;
+          this.targetId = -1;
+          this.emit("event", `target ${stale} disappeared; selecting a new target`);
+        }
+        return -1;
+      }
       const tee = this.world.getTee(info.id);
-      return tee && tee.alive ? info.id : -1;
+      if (tee?.alive) return info.id;
+      // A pinned target that was already present must not survive a leave or
+      // an id disappearing from snapshots. Otherwise the bot keeps selecting
+      // an invisible player forever and can abandon the WB/spawn logic.
+      if (this.targetId >= 0 || this.chargeTargetName !== undefined) {
+        const stale = this.cfg.targetName;
+        this.cfg.targetName = undefined;
+        this.chargeTargetName = undefined;
+        this.targetId = -1;
+        this.emit("event", `target ${stale} disappeared; selecting a new target`);
+      }
+      return -1;
     }
 
     const me = this.world.getTee(ownId);
