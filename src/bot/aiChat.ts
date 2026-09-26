@@ -13,7 +13,7 @@ const DEFAULT_ENDPOINT = "http://127.0.0.1:1337/v1";
 // bundled local G4F server.  Gemini/OpenaiChat may be listed by /v1/models but
 // can currently return 429 or an empty completion without an API key.
 const DEFAULT_PROVIDER = "Cloudflare";
-const DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+const DEFAULT_MODEL = "llama-3.3-70b";
 const DEFAULT_PROMPT = "Отвечай по-русски, дружелюбно и очень кратко. Ответ должен быть ровно 5–9 простых слов, без кавычек, пояснений и префикса имени.";
 
 export const AI_CHAT_DEFAULTS: AiChatSettings = { on: false, endpoint: DEFAULT_ENDPOINT, provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL, systemPrompt: DEFAULT_PROMPT };
@@ -32,11 +32,12 @@ export function sanitizeAiChat(raw: unknown): AiChatSettings {
   const oldDefault =
     (provider.toLowerCase() === "openaichat" && model.toLowerCase() === "gpt-4o-mini") ||
     (provider.toLowerCase() === "gemini" && model.toLowerCase() === "gemini-2.0-flash");
+  const staleCloudflareModel = provider.toLowerCase() === DEFAULT_PROVIDER.toLowerCase() && model.toLowerCase().startsWith("@cf/");
   return {
     on: o.on === true,
     endpoint: clean(o.endpoint, 300, DEFAULT_ENDPOINT).replace(/\/+$/u, ""),
-    provider: oldDefault ? DEFAULT_PROVIDER : provider,
-    model: oldDefault ? DEFAULT_MODEL : model,
+    provider: oldDefault || staleCloudflareModel ? DEFAULT_PROVIDER : provider,
+    model: oldDefault || staleCloudflareModel ? DEFAULT_MODEL : model,
     systemPrompt: clean(o.systemPrompt, 1200, DEFAULT_PROMPT),
   };
 }
