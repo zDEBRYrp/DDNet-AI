@@ -76,7 +76,7 @@ function render(s) {
   const dummyButton = $("#b-dummy");
   dummyButton.classList.toggle("on", Boolean(dummyOn));
   dummyButton.classList.toggle("critical", Boolean(dummy && dummy.phase === "offline" && dummy.error));
-  dummyButton.querySelector(".lbl").textContent = dummyOn ? "Dummy ✓" : "Dummy";
+  dummyButton.querySelector(".lbl").textContent = dummyOn ? "Отключить dummy" : "Подключить dummy";
   dummyButton.title = dummyOn ? "Отключить второй бот" : dummy && dummy.error ? `Ошибка dummy: ${dummy.error}` : "Подключить второй бот";
   dummyButton.disabled = !running;
   const pause = $("#b-pause");
