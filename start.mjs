@@ -342,6 +342,7 @@ ${line(56)}
     const name = typeof profile.name === "string" ? profile.name.trim().slice(0, 15) : undefined;
     const clan = typeof profile.clan === "string" ? profile.clan.trim().slice(0, 12) : undefined;
     const skin = typeof profile.skin === "string" ? profile.skin.trim().slice(0, 24) : undefined;
+    if (name !== undefined && name !== "") dummyName = name;
     dummy.setProfile({ name, clan, skin });
   };
   const setupDummy = async (requestedName = "") => {
