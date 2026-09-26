@@ -3258,6 +3258,8 @@ export class DdnetBot {
 
       const d = vdistance(selfPos, tee.pos);
       if (d > TARGET_MAX_PX) continue;
+      const frozenFor = tee.frozen ? this.world.tick - (this.frozenSinceById.get(tee.id) ?? this.world.tick) : 0;
+      const freshFrozen = tee.frozen && tee.deepFrozen !== true && frozenFor <= FROZEN_FINISH_TICKS;
       const interfering = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id || this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
       const threatening = this.world.tick - tee.attackTick < AGGRESSOR_MEMORY_TICKS && d < AGGRESSOR_RANGE_PX;
       let inWb = false;
@@ -3271,7 +3273,7 @@ export class DdnetBot {
         // A nearby player who has just attacked us is a real WB threat even
         // when he is standing outside the entrance leash.  The old filter
         // discarded him before the aggressor score could see him.
-        if (!roped && !atWar && !interfering && !threatening && (meInLeash ? !inWbLeash(wb, wbSide, ttx, tty) : !atUs)) continue;
+        if (!freshFrozen && !roped && !atWar && !interfering && !threatening && (meInLeash ? !inWbLeash(wb, wbSide, ttx, tty) : !atUs)) continue;
         inWb = inWbZone(wb, wbSide, ttx, tty);
       }
 
@@ -3281,8 +3283,6 @@ export class DdnetBot {
       if (!atWar && !this.duelNow() && this.afk(tee) && !tee.frozen && !interfering && d > BLOCKING_RANGE_PX && !inWb) continue;
 
       if (this.trapCare() && this.inDeadZone(tee.pos) && !this.inDeadZone(selfPos)) continue;
-
-      const frozenFor = tee.frozen ? this.world.tick - (this.frozenSinceById.get(tee.id) ?? this.world.tick) : 0;
 
       const sealed = (tee.frozen || (tee.id === this.targetId && this.nearFreeze(tee.pos))) && this.isSealed(tee);
 
