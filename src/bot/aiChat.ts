@@ -8,12 +8,12 @@ export type AiChatSettings = {
 
 export type AiChatResult = { text: string; provider: string; model: string };
 
-const DEFAULT_ENDPOINT = "http://127.0.0.1:1337/v1";
-// Keep the default on a provider/model pair that was verified against the
-// bundled local G4F server.  Gemini/OpenaiChat may be listed by /v1/models but
-// can currently return 429 or an empty completion without an API key.
-const DEFAULT_PROVIDER = "Cloudflare";
-const DEFAULT_MODEL = "llama-3.3-70b";
+const DEFAULT_ENDPOINT = "https://ai-api.cehpoint.co.in/v1";
+// Public no-key route verified with a real completion request. The endpoint
+// accepts the optional provider field, so the existing request format stays
+// compatible with the rest of the client.
+const DEFAULT_PROVIDER = "Cehpoint";
+const DEFAULT_MODEL = "cehpoint-ai";
 const DEFAULT_PROMPT = "Отвечай по-русски, дружелюбно и очень кратко. Ответ должен быть ровно 5–9 простых слов, без кавычек, пояснений и префикса имени.";
 
 export const AI_CHAT_DEFAULTS: AiChatSettings = { on: false, endpoint: DEFAULT_ENDPOINT, provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL, systemPrompt: DEFAULT_PROMPT };
@@ -31,8 +31,9 @@ export function sanitizeAiChat(raw: unknown): AiChatSettings {
   // by G4F but currently returns 429/empty completions.
   const oldDefault =
     (provider.toLowerCase() === "openaichat" && model.toLowerCase() === "gpt-4o-mini") ||
-    (provider.toLowerCase() === "gemini" && model.toLowerCase() === "gemini-2.0-flash");
-  const staleCloudflareModel = provider.toLowerCase() === DEFAULT_PROVIDER.toLowerCase() && model.toLowerCase().startsWith("@cf/");
+    (provider.toLowerCase() === "gemini" && model.toLowerCase() === "gemini-2.0-flash") ||
+    (provider.toLowerCase() === "cloudflare" && model.toLowerCase().includes("llama"));
+  const staleCloudflareModel = provider.toLowerCase() === "cloudflare";
   return {
     on: o.on === true,
     endpoint: clean(o.endpoint, 300, DEFAULT_ENDPOINT).replace(/\/+$/u, ""),
