@@ -139,8 +139,15 @@ export class DummyThread {
         else if (m.line.kind !== "log") console.log(m.line.text);
         return;
       case "status":
-        this.last = { ...m.status, error: m.status.phase === "online" ? undefined : this.last.error };
-        this.statusSink?.(m.status);
+        // The worker reports the current connection error in its status.  Do
+        // not overwrite it with the previous status' error: otherwise a
+        // first connection failure (or a server ban) reached the UI as a
+        // generic "not connected" state with no useful explanation.
+        this.last = {
+          ...m.status,
+          error: m.status.phase === "online" ? undefined : (m.status.error ?? this.last.error),
+        };
+        this.statusSink?.(this.last);
         return;
       case "reply": {
         const done = this.waiting.get(m.id);
