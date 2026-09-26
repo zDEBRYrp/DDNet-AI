@@ -1643,7 +1643,12 @@ export class DdnetBot {
     }
     const mode = want === "on" ? "auto" : want;
     if (mode !== "off" && mode !== "left" && mode !== "right" && mode !== "auto") return "!wb off | left | right | auto";
+    const was = this.wbMode;
     this.wbMode = mode;
+    // Re-entering Auto starts a fresh random choice.  Without resetting the
+    // chooser, switching Right -> Auto inherited the old side and made Auto
+    // look permanently tied to the last manual selection.
+    if (mode === "auto" && was !== "auto") this.wbChooser.reset();
 
     if (mode !== "off") {
       this.wbPausedUntilMs = 0;
@@ -4126,7 +4131,12 @@ export class DdnetBot {
       const tx = Math.trunc(self.pos.x / 32);
       const ty = Math.trunc(self.pos.y / 32);
       const standing = self.alive && !self.frozen ? (["left", "right"] as const).find((s) => inAnyBox(sideDef(def, s).zone, tx, ty)) : undefined;
-      if (standing !== undefined && standing !== side) {
+      // In Auto, being physically inside one entrance must not override the
+      // freshly chosen random side; that was the source of repeated
+      // left/right bias after changing modes.  Manual sides still adopt the
+      // entrance the bot is already standing in only through their explicit
+      // command above.
+      if (standing !== undefined && standing !== side && this.wbMode !== "auto") {
         this.wbChooser.adopt(standing);
         side = standing;
       }
