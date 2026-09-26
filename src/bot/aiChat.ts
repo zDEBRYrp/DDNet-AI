@@ -41,12 +41,16 @@ export async function askG4f(settings: AiChatSettings, name: string, message: st
   const timer = setTimeout(() => controller.abort(), 18_000);
   try {
     const res = await fetch(`${cfg.endpoint}/chat/completions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: cfg.model, provider: cfg.provider, temperature: 0.7, max_tokens: 80, messages: [{ role: "system", content: cfg.systemPrompt }, { role: "user", content: `${name} написал: ${message}` }] }), signal: controller.signal });
-    if (!res.ok) throw new Error(`g4f HTTP ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      const detail = body.replace(/[\r\n\t]+/g, " ").trim().slice(0, 240);
+      throw new Error(`g4f ${cfg.provider}/${cfg.model} HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+    }
     const data = await res.json() as { choices?: Array<{ message?: { content?: unknown }; text?: unknown }> };
     const choice = data.choices?.[0];
     const raw = choice?.message?.content ?? choice?.text ?? "";
     const answer = compact(contentOf(raw));
-    if (answer === "") throw new Error("g4f вернул пустой ответ");
+    if (answer === "") throw new Error(`g4f ${cfg.provider}/${cfg.model} вернул пустой ответ`);
     return answer;
   } finally { clearTimeout(timer); }
 }
