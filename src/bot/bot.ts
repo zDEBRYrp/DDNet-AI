@@ -900,6 +900,8 @@ export class DdnetBot {
   private chatTeam = false;
   private aiLastReplyMs = -Infinity;
   private aiBusy = false;
+  private aiPending: { who: string; message: string } | null = null;
+  private aiRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private aiStatus: { state: "idle" | "requesting" | "ok" | "error"; provider: string; model: string; at: string | null; answer: string | null; error: string | null } = {
     state: "idle",
     provider: "",
@@ -2058,6 +2060,9 @@ export class DdnetBot {
     this.rescuePullSince = -1;
     this.rescuePullAt = -Infinity;
     this.rescuePausedUntil.clear();
+    this.aiPending = null;
+    if (this.aiRetryTimer !== undefined) clearTimeout(this.aiRetryTimer);
+    this.aiRetryTimer = undefined;
 
     for (const t of this.replyTimers) clearTimeout(t);
     this.replyTimers.clear();
@@ -2232,7 +2237,13 @@ export class DdnetBot {
 
   private async answerWithAi(who: string, message: string): Promise<void> {
     const now = Date.now();
-    if (this.aiBusy || now - this.aiLastReplyMs < 7000) return;
+    if (!this.autoChat.aiEnabled()) return;
+    if (this.aiBusy || now - this.aiLastReplyMs < 7000) {
+      this.aiPending = { who, message };
+      this.emit("event", `AI чат: запрос от ${who} поставлен в очередь`);
+      this.scheduleAiRetry();
+      return;
+    }
     this.aiBusy = true;
     try {
       const cfg = this.autoChat.config().ai;
@@ -2249,7 +2260,22 @@ export class DdnetBot {
       const cfg = this.autoChat.config().ai;
       this.aiStatus = { state: "error", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: error.slice(0, 1000) };
       this.emit("event", `AI чат ошибка (${cfg.endpoint}): ${error}`);
-    } finally { this.aiBusy = false; }
+    } finally {
+      this.aiBusy = false;
+      this.scheduleAiRetry();
+    }
+  }
+
+  private scheduleAiRetry(): void {
+    if (this.aiPending === null || this.aiRetryTimer !== undefined) return;
+    const wait = this.aiBusy ? 500 : Math.max(0, this.aiLastReplyMs + 7000 - Date.now());
+    this.aiRetryTimer = setTimeout(() => {
+      this.aiRetryTimer = undefined;
+      const pending = this.aiPending;
+      this.aiPending = null;
+      if (pending !== null) void this.answerWithAi(pending.who, pending.message);
+    }, wait);
+    this.aiRetryTimer.unref?.();
   }
 
   private mentionsBot(message: string): boolean {
