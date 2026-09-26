@@ -187,11 +187,13 @@ const REFREEZE_TICKS = 6;
 const AT_US_MEMORY_TICKS = AGGRESSOR_MEMORY_TICKS;
 
 const AT_FRIEND_SCORE = 450;
-const RESCUE_RANGE_PX = 10 * 32;
+// Rescue must be selected before the normal WB wander/attack loop.  Ten tiles
+// was too short for the layouts in the video: the bot could see a frozen
+// teammate, but the candidate was discarded before a route was even tried.
+const RESCUE_RANGE_PX = 24 * 32;
 
 const RESCUE_HAMMER_PX = 56;
 
-const RESCUE_MIN_FREEZE_TICKS = 25;
 const RESCUE_WALK_RETRY_TICKS = 2 * 50;
 
 const RESCUE_GIVE_UP_TICKS = 3 * 50;
@@ -3844,7 +3846,12 @@ export class DdnetBot {
   }
 
   private rescuable(self: TeeState, t: TeeState | undefined): t is TeeState {
-    if (t === undefined || t.id === this.ownId || !t.alive || !t.frozen || t.deepFrozen === true || t.freezeTicksLeft < RESCUE_MIN_FREEZE_TICKS) return false;
+    // `frozen` is the authoritative state here.  A low freezeTicksLeft value
+    // means the teammate is close to thawing, not that rescue is unnecessary;
+    // dropping that candidate caused the bot to walk away at the most useful
+    // moment.  Deep-frozen players remain excluded because they cannot be
+    // rescued by the hammer/rope flow.
+    if (t === undefined || t.id === this.ownId || !t.alive || !t.frozen || t.deepFrozen === true) return false;
     if (!this.isFriendId(t.id) || this.world.notPlaying(t.id)) return false;
     if ((this.rescuePausedUntil.get(t.id) ?? -Infinity) > this.world.tick) return false;
     if (vdistance(self.pos, t.pos) > RESCUE_RANGE_PX) return false;
@@ -3856,7 +3863,9 @@ export class DdnetBot {
     // frozen friend is still an explicit rescue obligation in that mode;
     // hold/goto and duel keep their stricter movement semantics.
     if (self.frozen || (this.mode !== "fight" && this.mode !== "passive")) return false;
-    if (fighting && this.world.allTees().some((t) => t.id !== this.ownId && t.alive && t.hookedPlayer === this.ownId && !this.isFriendId(t.id))) return false;
+    // A frozen teammate is an explicit emergency even while an enemy is
+    // holding us.  The old gate made the bot abandon rescue exactly in the
+    // situations where the teammate needed the fastest possible hit/pull.
     const cands = this.world
       .allTees()
       .filter((t) => this.rescuable(self, t))
