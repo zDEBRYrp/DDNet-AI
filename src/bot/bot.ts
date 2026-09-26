@@ -2485,6 +2485,15 @@ export class DdnetBot {
 
       if (!this.duelNow() && this.rescueFriend(client, self, true)) return;
 
+      const frozenTarget = this.world.getTee(targetId);
+      if (frozenTarget !== undefined && !this.isFriendId(frozenTarget.id)) {
+        const direct = this.frozenTargetAction(self, frozenTarget);
+        if (direct !== null) {
+          this.applyInput(client, direct, self.activeWeapon);
+          return;
+        }
+      }
+
       let input: PlayerInput;
       if (this.cfg.planner) {
         input = this.planAction(ownId, targetId, self);
@@ -2910,6 +2919,43 @@ export class DdnetBot {
     return t.deepFrozen === true || this.world.tick - (this.frozenSinceById.get(t.id) ?? this.world.tick) > CROWD_FROZEN_TICKS;
   }
 
+  private frozenTargetIsActionable(self: TeeState, tee: TeeState, d: number): boolean {
+    if (!tee.frozen || tee.deepFrozen === true || this.isFriendId(tee.id)) return false;
+    if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
+    return d <= TUNING.hookLength + 64 || (d <= BLOCKING_RANGE_PX && this.nearFreeze(tee.pos));
+  }
+
+  private bodyPushCanConnect(self: TeeState, tee: TeeState): boolean {
+    if (tee.frozen) return false;
+    const dx = tee.pos.x - self.pos.x;
+    const dy = tee.pos.y - self.pos.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 150) return false;
+    if (d <= HALF_TEE * 2 + 8) return true;
+    const inv = d > 0 ? 1 / d : 0;
+    const closing = (self.vel.x - tee.vel.x) * dx * inv + (self.vel.y - tee.vel.y) * dy * inv;
+    const targetSpeed = Math.hypot(tee.vel.x, tee.vel.y);
+    const eta = d / Math.max(0.5, closing + 1.5);
+    return closing > -0.5 && eta <= 22 && targetSpeed < 12;
+  }
+
+  private frozenTargetAction(self: TeeState, target: TeeState): PlayerInput | null {
+    const d = vdistance(self.pos, target.pos);
+    if (!this.frozenTargetIsActionable(self, target, d)) return null;
+    const dx = target.pos.x - self.pos.x;
+    const dy = target.pos.y - self.pos.y;
+    if (d <= TUNING.hookLength && target.hookedPlayer !== self.id && (self.hookState === HOOK_IDLE || self.hookState === HOOK_FLYING)) {
+      return { ...emptyInput(), targetX: dx, targetY: dy, hook: 1, wantedWeapon: WEAPON_HAMMER + 1 };
+    }
+    if (self.hookedPlayer === target.id) {
+      return this.guard(self, { ...this.prevInput, targetX: dx, targetY: dy, hook: 1, wantedWeapon: WEAPON_HAMMER + 1 });
+    }
+    if (d > TUNING.hookLength && d <= BLOCKING_RANGE_PX) {
+      return { ...emptyInput(), direction: dx < 0 ? -1 : 1, jump: dy < -32 ? 1 : 0, targetX: dx, targetY: dy, wantedWeapon: WEAPON_HAMMER + 1 };
+    }
+    return null;
+  }
+
   private spared(t: TeeState, card: TwClientInfo | undefined): boolean {
     const nameKey = (card?.name ?? "").trim().toLowerCase();
     const clanKey = (card?.clan ?? "").trim().toLowerCase();
@@ -2955,9 +3001,10 @@ export class DdnetBot {
 
       if (this.outOfGame(tee.id)) continue;
 
-      if (!atWar && !this.duelNow() && this.afk(tee)) continue;
       const d = vdistance(selfPos, tee.pos);
       if (d > TARGET_MAX_PX) continue;
+      const interfering = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id || this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
+      if (!atWar && !this.duelNow() && this.afk(tee) && !tee.frozen && !interfering && d > BLOCKING_RANGE_PX) continue;
       let inWb = false;
       if (wb !== null && wbSide !== null) {
         const ttx = Math.trunc(tee.pos.x / 32);
@@ -2978,8 +3025,10 @@ export class DdnetBot {
 
       const wbFinish = WB_FINISH && wb !== null && wbSide !== null && meInLeash && tee.frozen && !sealed && inWb;
       const finishing = wbFinish || (tee.id === this.targetId && tee.frozen && !sealed && frozenFor <= FINISH_BLOCK_TICKS && this.nearFreeze(tee.pos));
+      const frozenActionable = this.frozenTargetIsActionable(me ?? tee, tee, d);
       const settled =
-        sealed || (!finishing && frozenFor > (this.cfg.plannerCfg?.settledFreezeTicks ?? PLANNER_DEFAULTS.settledFreezeTicks));
+        (sealed && !frozenActionable) ||
+        (!finishing && frozenFor > (this.cfg.plannerCfg?.settledFreezeTicks ?? PLANNER_DEFAULTS.settledFreezeTicks) && !frozenActionable);
 
       if (settled) {
         if (tee.id === this.targetId) keepSettled = true;
@@ -2991,6 +3040,9 @@ export class DdnetBot {
       if (atWar) score += 900;
       if (tee.hookedPlayer === ownId) score += 1000;
       if (me?.hookedPlayer === tee.id) score += 800;
+      if (tee.frozen && frozenActionable) score += 900;
+      if (!tee.frozen && bodyPushCanConnect(me ?? tee, tee)) score += 300;
+      if (!tee.frozen && d <= BLOCKING_RANGE_PX && !bodyPushCanConnect(me ?? tee, tee)) score -= 250;
 
       if (tee.id === this.targetId && tee.frozen && d < BLOCKING_RANGE_PX) score += this.cfg.plannerCfg?.blockHoldScore ?? PLANNER_DEFAULTS.blockHoldScore;
       if (finishing && d < BLOCKING_RANGE_PX) score += FINISH_BLOCK_SCORE;
