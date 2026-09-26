@@ -208,6 +208,7 @@ function main() {
       target: st ? st.targetName : null,
       brain: st ? st.brain : "",
       mode: st ? st.mode : "",
+      dummy: st?.dummy ? { ...st.dummy } : null,
       offlineReason: st ? st.offlineReason : "",
       mini,
       onTop,
@@ -557,6 +558,23 @@ function main() {
       toast(wasPaused ? t("Бот снова играет") : t("Бот на паузе: стоит на месте"));
       pushState();
       return { ok: true, paused: !wasPaused };
+    } catch (err) {
+      toast(t("Не вышло: {err}", { err: tr(err.message) }), "error");
+      return { ok: false };
+    }
+  }
+
+  async function toggleDummy() {
+    if (bot === null || bot.state !== "running" || bot.port <= 0) {
+      toast(t("Бот ещё не запущен"), "warn");
+      return { ok: false };
+    }
+    const current = lastStatus?.dummy;
+    const enabled = current === undefined ? false : current.phase !== "offline" && current.phase !== "stopped";
+    try {
+      const body = await request(bot.port, "POST", "/api/launch", { dummy: enabled ? "off" : "on" }, 3000);
+      toast(body?.reply || (enabled ? t("Dummy выключен") : t("Dummy подключается")), "ok");
+      return { ok: true, enabled: !enabled };
     } catch (err) {
       toast(t("Не вышло: {err}", { err: tr(err.message) }), "error");
       return { ok: false };
@@ -1024,6 +1042,7 @@ function main() {
     handle("win:setMini", (on) => setMini(on === true));
     handle("win:setOnTop", (on) => setOnTop(on === true));
     handle("bot:togglePause", () => togglePause());
+    handle("bot:toggleDummy", () => toggleDummy());
     handle("bot:restart", () => restartBot());
     handle("bot:reset", () => resetBot());
     handle("bot:disconnect", () => disconnectBot());
