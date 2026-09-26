@@ -3943,7 +3943,15 @@ export class DdnetBot {
     if (d > RESCUE_HAMMER_PX * 3) {
       if (fighting) return false;
 
-      if (this.nav === null && this.world.tick - this.rescueWalkTick > RESCUE_WALK_RETRY_TICKS && this.reachable(self.pos, him)) {
+      if (
+        this.world.tick - this.rescueWalkTick > RESCUE_WALK_RETRY_TICKS &&
+        this.reachable(self.pos, him)
+      ) {
+        // A rescue request is allowed to replace a lower-priority route (home,
+        // WB or a previous game spot), but an already active route to this
+        // same teammate must not be restarted every snapshot.
+        if (this.nav !== null && this.rescueId !== him.id) this.endNav();
+        if (this.nav !== null) return true;
         this.rescueWalkTick = this.world.tick;
         const reply = this.gotoCommand(`@${name}`, { throughFreeze: false, crossings: [] });
         if (this.nav !== null) {
