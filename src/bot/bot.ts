@@ -2081,7 +2081,9 @@ export class DdnetBot {
       this.stats.kills++;
       this.emote(EMOTICON_SPLATTEE);
     } else if (kill.victim_id === this.targetId) {
-
+      // A dead target must never remain selected: otherwise the next tick can
+      // keep the bot staring at the spawn or at the old war slot.
+      this.targetId = -1;
       this.emote(EMOTICON_QUESTION);
     }
   }
@@ -2482,7 +2484,6 @@ export class DdnetBot {
         if (this.trek !== null) this.endTrek();
         if (this.idleSinceTick < 0) this.idleSinceTick = this.world.tick;
         if (!this.duelNow() && this.rescueFriend(client, self)) return;
-        if (!this.duelNow() && this.assistNearbyFriend(client, self)) return;
         const holding = this.wbHolding();
 
         if (holding === null && this.nav === null && !this.duelNow() && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
@@ -2525,7 +2526,6 @@ export class DdnetBot {
       this.idleSinceTick = -1;
 
       if (!this.duelNow() && this.rescueFriend(client, self, true)) return;
-      if (!this.duelNow() && this.assistNearbyFriend(client, self, true)) return;
 
       const frozenTarget = this.world.getTee(targetId);
       if (frozenTarget !== undefined && !this.isFriendId(frozenTarget.id)) {
@@ -4632,6 +4632,27 @@ export class DdnetBot {
 
       const holding = self.hookedPlayer >= 0 && (spare.some((t) => t.id === self.hookedPlayer) || this.isFriendId(self.hookedPlayer));
       if (holding || (self.hookState === HOOK_IDLE && this.ropeCatches(self, out, spare, target))) out = { ...out, hook: 0 };
+    }
+    // A reachable enemy beside a freeze is an urgent throw opportunity.
+    // Spare/AFK tees may veto a normal planner hook, but must not make the bot
+    // stare at an opponent who can be sent into the freeze now.
+    if (
+      !target.frozen &&
+      !this.isFriendId(target.id) &&
+      this.nearFreeze(target.pos) &&
+      vdistance(self.pos, target.pos) <= TUNING.hookLength &&
+      (self.hookState === HOOK_IDLE || self.hookState === HOOK_FLYING) &&
+      self.hookedPlayer !== target.id &&
+      this.lineIsClear(self.pos, target.pos)
+    ) {
+      out = {
+        ...out,
+        targetX: target.pos.x - self.pos.x,
+        targetY: target.pos.y - self.pos.y,
+        hook: 1,
+        fire: 0,
+        wantedWeapon: WEAPON_HAMMER + 1,
+      };
     }
     this.lastPlan = {
       target: targetId,
