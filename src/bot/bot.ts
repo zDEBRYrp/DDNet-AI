@@ -674,6 +674,7 @@ export class DdnetBot {
   readonly stats: BotStats = { ticks: 0, kills: 0, deaths: 0, selfKills: 0, clips: 0, hammerFires: 0, hooksFired: 0, disconnects: 0, errors: 0, blocks: 0, blockedBy: 0 };
 
   private readonly lastTouch = new Map<number, { by: number; tick: number }>();
+  private readonly pendingBlocks = new Map<number, number>();
   private readonly lastPosById = new Map<number, { x: number; y: number; tick: number }>();
   private readonly thawTickById = new Map<number, number>();
   readonly travel: Travel = { start: null, end: null, distance: 0 };
@@ -1280,6 +1281,7 @@ export class DdnetBot {
     this.atUsById.clear();
     this.atFriendById.clear();
     this.lastTouch.clear();
+    this.pendingBlocks.clear();
     this.thawTickById.clear();
     this.lastPosById.clear();
     this.rescueWalkTick = -Infinity;
@@ -2075,6 +2077,10 @@ export class DdnetBot {
 
   private onKill(kill: TwKill): void {
 
+    if (this.pendingBlocks.delete(kill.victim_id)) {
+      this.stats.blocks++;
+      this.emit("event", `blocked ${this.nameOfLive(kill.victim_id)}: died after the bot's freeze`);
+    }
     this.lastTouch.delete(kill.victim_id);
     this.thawTickById.delete(kill.victim_id);
     const targetDied = kill.victim_id === this.targetId;
@@ -2948,7 +2954,10 @@ export class DdnetBot {
         this.thawTickById.delete(tee.id);
         this.lastTouch.delete(tee.id);
       } else if (!tee.frozen && this.frozenSinceById.has(tee.id)) this.thawTickById.set(tee.id, tick);
-      if (!tee.alive || !tee.frozen) this.frozenSinceById.delete(tee.id);
+      if (!tee.alive || !tee.frozen) {
+        this.frozenSinceById.delete(tee.id);
+        if (!tee.frozen) this.pendingBlocks.delete(tee.id);
+      }
       else if (!this.frozenSinceById.has(tee.id)) {
         this.frozenSinceById.set(tee.id, tick);
 
@@ -3686,9 +3695,9 @@ export class DdnetBot {
       return;
     }
     if (last.by !== me.id || this.isFriendId(tee.id)) return;
-    this.stats.blocks++;
+    this.pendingBlocks.set(tee.id, tick);
     if (this.duelScore !== null && tee.id === this.duelScore.id) this.duelScore.ours++;
-    this.emit("event", t("заморозил {name}", { name: this.nameOfLive(tee.id) }));
+    this.emit("event", t("заморозил {name}; жду подтверждения блокировки смертью", { name: this.nameOfLive(tee.id) }));
   }
 
   private inFreezeTiles(pos: Vec2): boolean {
