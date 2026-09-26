@@ -2956,7 +2956,10 @@ export class DdnetBot {
       } else if (!tee.frozen && this.frozenSinceById.has(tee.id)) this.thawTickById.set(tee.id, tick);
       if (!tee.alive || !tee.frozen) {
         this.frozenSinceById.delete(tee.id);
-        if (!tee.frozen) this.pendingBlocks.delete(tee.id);
+        // Keep a pending block for a dead tee until its kill event arrives;
+        // snapshots and kill events are delivered independently.  Otherwise
+        // the death could win the race and the confirmed block would vanish.
+        if (tee.alive && !tee.frozen) this.pendingBlocks.delete(tee.id);
       }
       else if (!this.frozenSinceById.has(tee.id)) {
         this.frozenSinceById.set(tee.id, tick);
