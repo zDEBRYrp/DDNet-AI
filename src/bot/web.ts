@@ -121,6 +121,8 @@ export type WebBot = {
   statsLine: () => string;
 
   handleConsole: (line: string) => string | Promise<string>;
+  setProfile?: (profile: { name?: unknown; clan?: unknown; skin?: unknown }) => string;
+  setDummyProfile?: (profile: { name?: unknown; clan?: unknown; skin?: unknown }) => void;
   setDummyEnabled?: (enabled: boolean, name?: string) => void | Promise<void>;
 
   liveMap: () => LiveMap | null;
@@ -531,6 +533,13 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
               if (typeof body[k] === "string") cur[k] = body[k] as string;
             }
             writeFileSync(LAUNCH_FILE, JSON.stringify(cur, null, 2));
+
+            if (typeof body.name === "string" || typeof body.clan === "string" || typeof body.skin === "string") {
+              reply = bot.setProfile?.({ name: body.name, clan: body.clan, skin: body.skin }) ?? reply;
+            }
+            if (typeof body.dummyName === "string") {
+              bot.setDummyProfile?.({ name: body.dummyName });
+            }
 
             if (typeof body.ddnetData === "string") cachedRoot = undefined;
             if (body.dummy === "on" || body.dummy === "off") {

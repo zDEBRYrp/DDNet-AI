@@ -326,6 +326,23 @@ ${line(56)}
   const dummyWanted = dummyFlag !== undefined ? !flagOff(dummyFlag) : lowCpuWanted(saved.dummy);
   let dummy = null;
   let dummyName = "";
+  const applyMainProfile = bot.setProfile.bind(bot);
+  bot.setProfile = (profile) => {
+    const reply = applyMainProfile(profile);
+    dummy?.setProfile({
+      ...(typeof profile.name === "string" ? { name: profile.name } : {}),
+      ...(typeof profile.clan === "string" ? { clan: profile.clan } : {}),
+      ...(typeof profile.skin === "string" ? { skin: profile.skin } : {}),
+    });
+    return reply;
+  };
+  bot.setDummyProfile = (profile) => {
+    if (dummy === null) return;
+    const name = typeof profile.name === "string" ? profile.name.trim().slice(0, 15) : undefined;
+    const clan = typeof profile.clan === "string" ? profile.clan.trim().slice(0, 12) : undefined;
+    const skin = typeof profile.skin === "string" ? profile.skin.trim().slice(0, 24) : undefined;
+    dummy.setProfile({ name, clan, skin });
+  };
   const setupDummy = async (requestedName = "") => {
     const given = requestedName.trim() || (dummyFlag !== undefined && !flagOnWord(dummyFlag) ? dummyFlag.trim() : typeof saved.dummyName === "string" ? saved.dummyName.trim() : "");
     dummyName = (given || `${name.slice(0, 14)}2`).slice(0, 15);

@@ -73,6 +73,9 @@ port.on("message", (m: ToDummy) => {
     case "partner":
       bot.setPartnerId(m.id);
       return;
+    case "profile":
+      bot.setProfile(m);
+      return;
     case "stop":
       clearInterval(statusTimer);
       clearInterval(idTimer);

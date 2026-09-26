@@ -38,7 +38,8 @@ export type ToDummy =
   | { t: "stop" }
   | { t: "console"; id: number; line: string }
   | { t: "relation"; list: List; name: string; on: boolean }
-  | { t: "partner"; id: number | null };
+  | { t: "partner"; id: number | null }
+  | { t: "profile"; name?: string; clan?: string; skin?: string };
 
 export type FromDummy =
   | { t: "out"; line: BotLine }
@@ -208,6 +209,11 @@ export class DummyThread {
 
   setPartnerId(id: number | null): void {
     this.send({ t: "partner", id });
+  }
+
+  setProfile(profile: { name?: string; clan?: string; skin?: string }): void {
+    this.init.cfg = { ...this.init.cfg, ...profile };
+    this.send({ t: "profile", ...profile });
   }
 
   stop(): Promise<void> {

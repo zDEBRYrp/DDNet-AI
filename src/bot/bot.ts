@@ -2702,6 +2702,18 @@ export class DdnetBot {
     }
   }
 
+  /** Apply player cosmetics immediately; DDNet supports ChangePlayerInfo in-game. */
+  setProfile(profile: { name?: unknown; clan?: unknown; skin?: unknown }): string {
+    const name = typeof profile.name === "string" ? profile.name.trim() : "";
+    const clan = typeof profile.clan === "string" ? profile.clan.trim() : undefined;
+    const skin = typeof profile.skin === "string" ? profile.skin.trim() : undefined;
+    if (name !== "") this.cfg.name = name.slice(0, 15);
+    if (clan !== undefined) this.cfg.clan = clan.slice(0, 12);
+    if (skin !== undefined && skin !== "") this.cfg.skin = skin.slice(0, 24);
+    this.sendIdentity();
+    return `профиль применён без перезахода: ${this.cfg.name}`;
+  }
+
   liveMap(): LiveMap | null {
     if (!this.collisionReady) return null;
     const c = this.world.collision;
