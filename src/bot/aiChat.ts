@@ -23,6 +23,9 @@ export function sanitizeAiChat(raw: unknown): AiChatSettings {
 
 function compact(text: string): string {
   const oneLine = String(text ?? "").replace(/[\r\n]+/g, " ").replace(/^\s*[^:]{1,24}:\s*/u, "").trim();
+  // Some G4F providers advertise text models but return an HTML audio/image
+  // widget. Never pass markup or a media URL into the game chat as an answer.
+  if (/<(?:audio|img|video|iframe)\b|https?:\/\/[^\s]+\.(?:mp3|wav|png|jpg|webm)(?:\?|$)/iu.test(oneLine)) return "";
   return oneLine.split(/\s+/u).filter(Boolean).slice(0, 9).join(" ").slice(0, 160);
 }
 
