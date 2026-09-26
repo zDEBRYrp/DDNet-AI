@@ -36,6 +36,9 @@ $("#titlebar").addEventListener("dblclick", (e) => {
   api.window.toggleMaximize();
 });
 $("#b-pause").addEventListener("click", () => api.bot.togglePause());
+$("#b-reset").addEventListener("click", () => api.bot.reset());
+$("#b-disconnect").addEventListener("click", () => api.bot.disconnect());
+$("#b-reconnect").addEventListener("click", () => api.bot.reconnect());
 $("#b-mini").addEventListener("click", () => api.window.setMini(!(state && state.mini)));
 $("#b-pin").addEventListener("click", () => api.window.setOnTop(!(state && state.onTop)));
 $("#b-servers").addEventListener("click", () => toggleDrawer("servers"));
@@ -70,6 +73,9 @@ function render(s) {
   pause.querySelector(".ic").className = `ic ic-${s.paused ? "play" : "pause"}`;
   $("#b-pause-lbl").textContent = s.paused ? t("Играть") : t("Пауза");
   pause.title = `${s.paused ? t("Продолжить игру") : t("Пауза: бот встанет на месте")} (${prettyKey(s.hotkey)})`;
+  $("#b-disconnect").disabled = !running;
+  $("#b-reset").disabled = !running;
+  $("#b-reconnect").disabled = s.screen === "noroot";
   $("#b-pin").classList.toggle("on", s.onTop);
   $("#b-pin").querySelector(".ic").className = `ic ic-${s.onTop ? "pin-off" : "pin"}`;
   $("#b-mini").title = s.mini ? t("Обычное окно") : t("Мини-режим поверх игры");

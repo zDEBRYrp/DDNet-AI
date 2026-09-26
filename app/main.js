@@ -573,6 +573,44 @@ function main() {
     await bot.restart();
   }
 
+  async function resetBot() {
+    if (bot === null || bot.state !== "running") {
+      toast(t("Бот ещё не запущен"), "warn");
+      return { ok: false };
+    }
+    try {
+      await bot.command("!reset");
+      addLog("app", t("бот сброшен: kill + respawn"));
+      return { ok: true };
+    } catch (err) {
+      toast(t("Не вышло: {err}", { err: tr(err.message) }), "error");
+      return { ok: false };
+    }
+  }
+
+  async function disconnectBot() {
+    if (bot === null) return { ok: true };
+    addLog("app", t("отключение по кнопке"));
+    const current = bot;
+    bot = null;
+    await current.stop();
+    stopPolling();
+    forgetChild();
+    pushState();
+    return { ok: true };
+  }
+
+  async function reconnectBot() {
+    if (bot !== null) {
+      addLog("app", t("переподключение по кнопке"));
+      await bot.restart();
+      return { ok: true };
+    }
+    if (root === null) return { ok: false };
+    startBot();
+    return { ok: true };
+  }
+
   function setLanguage() {
     const before = lang;
     applyLang();
@@ -987,6 +1025,9 @@ function main() {
     handle("win:setOnTop", (on) => setOnTop(on === true));
     handle("bot:togglePause", () => togglePause());
     handle("bot:restart", () => restartBot());
+    handle("bot:reset", () => resetBot());
+    handle("bot:disconnect", () => disconnectBot());
+    handle("bot:reconnect", () => reconnectBot());
     handle("state:get", () => getState());
     handle("setup:get", () => {
       const s = root === null ? null : settingsLib.readSettings(root);
