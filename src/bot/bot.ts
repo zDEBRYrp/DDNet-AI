@@ -2044,6 +2044,16 @@ export class DdnetBot {
 
   private onDisconnect(reason: string, fromServer: boolean): void {
     this.endDuelScore();
+    // Do not expose or reuse live rescue state while the connection is down.
+    // The configured mode/target remain intact for a deliberate reconnect.
+    this.pendingBlocks.clear();
+    this.rescueId = -1;
+    this.rescueHammerId = -1;
+    this.rescueHammerSince = -1;
+    this.rescuePullId = -1;
+    this.rescuePullSince = -1;
+    this.rescuePullAt = -Infinity;
+    this.rescuePausedUntil.clear();
 
     for (const t of this.replyTimers) clearTimeout(t);
     this.replyTimers.clear();
