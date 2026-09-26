@@ -223,6 +223,7 @@ svg.ic{width:14px;height:14px;flex:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,
 .chip{flex:none;font-size:11.5px;padding:2px 9px;border-radius:9px;line-height:18px}
 .chip.free{background:rgba(120,200,140,.5)}
 .chip.frozen{background:rgba(77,143,201,.75)}
+.chip.connecting{background:rgba(235,165,55,.7)}
 .chip.off{background:rgba(230,110,100,.55)}
 .chip.slow{background:rgba(235,165,55,.7);cursor:help}
 .ctl-low label.check{margin:0;font-size:12px}

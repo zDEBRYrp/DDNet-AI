@@ -131,8 +131,9 @@ function renderPanel(s){
  $('#dummyrow').hidden=false;
  if(d){
   const on=d.phase==='online';
-  $('#dummychip').textContent=!on?t('не в игре'):d.frozen?t('во фризе'):d.acting?t('свободен'):t('стоит');
-  $('#dummychip').className='chip '+(!on?'off':d.frozen?'frozen':'free');
+  const connecting=d.phase==='connecting';
+  $('#dummychip').textContent=connecting?t('подключается'):!on?t('не в игре'):d.frozen?t('во фризе'):d.acting?t('свободен'):t('стоит');
+  $('#dummychip').className='chip '+(connecting?'connecting':!on?'off':d.frozen?'frozen':'free');
   $('#dummytext').textContent=d.name+(d.wb?' · '+(d.wb==='WB left'?t('держит ВБ слева'):t('держит ВБ справа')):'')+(d.target?' · '+t('цель: {name}',{name:d.target}):'');
   if(d.error)$('#dummytext').textContent+=' · '+t('ошибка: {error}',{error:d.error});
   $('#dummy-toggle').textContent=on?t('отключить дамми'):d.phase==='connecting'?t('подключается…'):t('подключить дамми');
