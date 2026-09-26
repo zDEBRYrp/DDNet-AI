@@ -146,6 +146,12 @@ const DUEL_ACCEPT_WINDOW_MS = 120_000;
 
 const AUTO_ACCEPT_HOLD_MS = 10_000;
 
+// These are terminal server-side refusals, not transient network failures.
+// Retrying them forever only spams the server and hides the useful reason in
+// the UI/log.  A deliberate reconnect button still creates a fresh bot and
+// can be used after the user changes VPN/account/server settings.
+const PERMANENT_SERVER_REFUSAL = /\b(?:banned|ban|vpn detected|wrong password|not authorized|account (?:is )?locked|version (?:is )?not supported)\b/i;
+
 const DUEL_ENTER_TICKS = 25;
 
 const DUEL_LEAVE_TICKS = 100;
@@ -2104,6 +2110,13 @@ export class DdnetBot {
       const waiter = this.startWaiter;
       this.startWaiter = undefined;
       waiter?.reject(new Error(`connection to ${this.cfg.host}:${this.cfg.port} lost: ${reason}`));
+      return;
+    }
+    if (fromServer && PERMANENT_SERVER_REFUSAL.test(reason)) {
+      this.emit("event", `automatic reconnect stopped: server refused this connection (${reason})`);
+      const waiter = this.startWaiter;
+      this.startWaiter = undefined;
+      waiter?.reject(new Error(`server refused this connection: ${reason}`));
       return;
     }
     this.scheduleReconnect();

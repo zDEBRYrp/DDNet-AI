@@ -514,7 +514,19 @@ function main() {
           lastStatus = body.status;
           if (typeof body.version === "string") botVersion = body.version;
           for (const ev of phase.update(lastStatus.phase, lastStatus.offlineReason, Date.now())) {
-            if (ev.kind === "disconnected") notify(t("Бот отключился"), ev.reason ? t("Причина: {reason}. Переподключаюсь.", { reason: ev.reason }) : t("Переподключаюсь."));
+            if (ev.kind === "disconnected") {
+              const terminal = /\b(?:banned|ban|vpn detected|wrong password|not authorized|account (?:is )?locked|version (?:is )?not supported)\b/i.test(ev.reason || "");
+              notify(
+                t("Бот отключился"),
+                ev.reason
+                  ? terminal
+                    ? t("Причина: {reason}. Автопереподключение остановлено.", { reason: ev.reason })
+                    : t("Причина: {reason}. Переподключаюсь.", { reason: ev.reason })
+                  : terminal
+                    ? t("Автопереподключение остановлено.")
+                    : t("Переподключаюсь."),
+              );
+            }
             if (ev.kind === "reconnected") notify(t("Бот снова в игре"), t("Сервер {server}", { server: lastStatus.server }));
           }
           if (JSON.stringify(summary(lastStatus)) !== before) pushState();
