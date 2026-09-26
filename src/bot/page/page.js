@@ -95,8 +95,7 @@ $('#emo').addEventListener('change',()=>{const v=$('#emo').value;if(v)botCmd('!e
 let panel=null,doingText='';
 const MODE_CMD={fight:'!go',passive:'!mode passive',hold:'!stop'};
 for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.addEventListener('click',()=>void botCmd(MODE_CMD[b.dataset.mode],true));
-let pairWb=false;
-for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.addEventListener('click',()=>{pairWb=b.dataset.wb==='both';void botCmd('!wb '+b.dataset.wb,true)});
+for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.addEventListener('click',()=>void botCmd('!wb '+b.dataset.wb,true));
 for(const b of document.querySelectorAll('#styleseg [data-style]'))b.addEventListener('click',()=>void botCmd('!style '+b.dataset.style,true));
 $('#tgtclear').addEventListener('click',()=>void botCmd('!target -',true));
 $('#walkstop').addEventListener('click',()=>void botCmd('!stop',true));
@@ -166,7 +165,8 @@ function renderPanel(s){
  duelBtn.classList.toggle('auto',!selectedDummy&&!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
  document.querySelector('#wbseg [data-wb="both"]').hidden=!dummyOnline;
  $('#wbrow').hidden=style!=='wb';
- for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb==='both'?pairWb:b.dataset.wb===wb);
+ const pairActive=dummyOnline&&((panel&&panel.wbMode==='left'&&d.wbMode==='right')||(panel&&panel.wbMode==='right'&&d.wbMode==='left'));
+ for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb==='both'?pairActive:b.dataset.wb===wb);
  const pin=selectedTarget;
  $('#tgt').textContent=pin?t('только {name}',{name:pin}):t('сам выбирает');
  $('#tgt').classList.toggle('pinned',!!pin);
