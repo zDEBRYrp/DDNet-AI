@@ -2504,13 +2504,7 @@ export class DdnetBot {
       if (!this.duelNow() && this.rescueFriend(client, self, true)) return;
 
       const frozenTarget = this.world.getTee(targetId);
-      if (frozenTarget !== undefined && this.chargeTargetName !== undefined && frozenTarget.frozen) {
-        // Charge is a terminal hold phase: once the victim is frozen, never
-        // hook or hammer them back out.  The charge ends only on their death.
-        this.applyInput(client, { ...emptyInput(), targetX: frozenTarget.pos.x - self.pos.x, targetY: frozenTarget.pos.y - self.pos.y }, self.activeWeapon);
-        return;
-      }
-      if (frozenTarget !== undefined && !this.isExplicitFriendId(frozenTarget.id)) {
+      if (frozenTarget !== undefined && !this.isFriendId(frozenTarget.id)) {
         const direct = this.frozenTargetAction(self, frozenTarget);
         if (direct !== null) {
           this.applyInput(client, direct, self.activeWeapon);
@@ -2956,7 +2950,7 @@ export class DdnetBot {
   }
 
   private frozenTargetIsActionable(self: TeeState, tee: TeeState, d: number): boolean {
-    if (!tee.frozen || tee.deepFrozen === true || this.isExplicitFriendId(tee.id)) return false;
+    if (!tee.frozen || tee.deepFrozen === true || this.isFriendId(tee.id)) return false;
     if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
     return d <= TUNING.hookLength + 64 || (d <= BLOCKING_RANGE_PX && this.nearFreeze(tee.pos));
   }
@@ -4572,10 +4566,6 @@ export class DdnetBot {
     planner.setBand(this.wbBand(self));
     planner.setLiveTick(this.world.tick);
     let out = planner.decide(sim, ownId, targetId, this.prevInput, enemyInput);
-
-    // Frozen enemies cannot be hit.  More importantly, firing at one can
-    // make the planner choose a pull-out sequence that undoes a fresh block.
-    if (target.frozen && !this.isExplicitFriendId(target.id)) out = { ...out, fire: 0 };
 
     if (out.hook !== 0 && (spare.length > 0 || self.hookedPlayer >= 0)) {
 
