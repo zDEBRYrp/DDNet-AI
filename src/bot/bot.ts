@@ -197,6 +197,8 @@ const RESCUE_WALK_RETRY_TICKS = 2 * 50;
 const RESCUE_GIVE_UP_TICKS = 3 * 50;
 const RESCUE_PAUSE_TICKS = 10 * 50;
 
+const FROZEN_FINISH_TICKS = 3 * 50;
+
 const PULL_ROLL_TICKS = 40;
 const PULL_HOLDS = [8, 16, 24, 32] as const;
 
@@ -2954,14 +2956,11 @@ export class DdnetBot {
 
   private frozenTargetIsActionable(self: TeeState, tee: TeeState, d: number): boolean {
     if (!tee.frozen || tee.deepFrozen === true || this.isFriendId(tee.id)) return false;
-    // A frozen enemy is already in the desired state.  Keep it actionable only
-    // while the rope is actually attached; otherwise pickTarget used to keep
-    // selecting it forever while planAction correctly emitted no hook/fire.
-    // That left the bot standing and staring at the frozen tee instead of
-    // returning to the WB or choosing a live threat.
-    if (tee.hookedPlayer !== self.id && self.hookedPlayer !== tee.id) return false;
     if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
-    return d <= TUNING.hookLength + 64;
+    const frozenFor = this.world.tick - (this.frozenSinceById.get(tee.id) ?? this.world.tick);
+    // Give the planner a short, explicit finishing window for a fresh enemy
+    // freeze near the hazard.  Once it has settled, drop it and resume the WB.
+    return frozenFor <= FROZEN_FINISH_TICKS && d <= BLOCKING_RANGE_PX && this.nearFreeze(tee.pos);
   }
 
   private bodyPushCanConnect(self: TeeState, tee: TeeState): boolean {
@@ -4602,7 +4601,7 @@ export class DdnetBot {
     planner.setLiveTick(this.world.tick);
     let out = planner.decide(sim, ownId, targetId, this.prevInput, enemyInput);
 
-    if (target.frozen && !this.isFriendId(target.id)) out = { ...out, hook: 0, fire: 0 };
+    if (target.frozen && !this.isFriendId(target.id)) out = { ...out, fire: 0 };
     else if (out.hook !== 0 && !this.lineIsClear(self.pos, target.pos)) out = { ...out, hook: 0 };
 
     if (out.hook !== 0 && (spare.length > 0 || self.hookedPlayer >= 0)) {
