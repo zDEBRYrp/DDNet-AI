@@ -7,7 +7,11 @@ export type DummyStatus = {
   acting: boolean;
   mode: "fight" | "passive" | "hold" | "goto";
   wb: string | null;
+  wbMode?: "auto" | "left" | "right" | "off" | null;
   target: string | null;
+  home?: boolean;
+  inDuel?: boolean;
+  pinnedTarget?: string | null;
 
   selfId: number;
 
@@ -70,7 +74,7 @@ export class DummyThread {
   private readonly init: DummyInit;
   private sink: ((line: BotLine) => void) | null = null;
   private statusSink: ((s: DummyStatus) => void) | null = null;
-  private last: DummyStatus = { phase: "offline", frozen: false, acting: false, mode: "passive", wb: null, target: null, selfId: -1, duelScore: null };
+  private last: DummyStatus = { phase: "offline", frozen: false, acting: false, mode: "passive", wb: null, wbMode: null, target: null, home: false, inDuel: false, pinnedTarget: null, selfId: -1, duelScore: null };
   private nextId = 1;
   private readonly waiting = new Map<number, (text: string) => void>();
   private onStopped: (() => void) | null = null;

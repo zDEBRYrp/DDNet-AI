@@ -81,11 +81,11 @@ let replyTimer=0;
 let controlTarget='main';
 async function botCmd(v,show){
  let reply='';
- const shared=/^!(?:target|charge|goto|style|mode|go|stop|wb|duel)\b/i.test(v);
  const pair=/^!wb\s+both\s*$/i.test(v);
- const line=shared||controlTarget==='main'?v:'!d '+v;
+ // Normal controls apply only to the selected bot. The pair command is the
+ // one deliberate exception: start.mjs assigns opposite WB sides to both.
+ const line=pair||controlTarget==='main'?v:'!d '+v;
  try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
- if(shared&&!pair&&lastStatus?.dummy?.phase==='online'){try{await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:'!d '+v})})}catch{}}
  if(show&&reply){const box=$('#reply');box.textContent=tr(reply.split('\n')[0]);box.hidden=false;clearTimeout(replyTimer);replyTimer=setTimeout(()=>{box.hidden=true},5000)}
  tick();
  return reply;
@@ -140,22 +140,28 @@ function renderPanel(s){
   $('#dummy-toggle').classList.toggle('on',on);
   $('#dummy-controls').hidden=!on;
   $('#control-target').disabled=!on;
- } else { $('#dummy-toggle').textContent=t('подключить дамми'); $('#dummy-toggle').classList.remove('on'); $('#dummy-controls').hidden=true; $('#dummychip').textContent=t('не подключён'); $('#dummychip').className='chip off'; }
- const mode=s.acting?s.mode:'hold';
+ } else { $('#dummy-toggle').textContent=t('подключить дамми'); $('#dummy-toggle').classList.remove('on'); $('#dummy-controls').hidden=true; $('#control-target').disabled=true; $('#dummychip').textContent=t('не подключён'); $('#dummychip').className='chip off'; }
+  const dummyOnline=!!(d&&d.phase==='online');
+  const selectedDummy=controlTarget==='dummy'&&dummyOnline;
+  const selectedMode=selectedDummy?(d.acting?d.mode:'hold'):(s.acting?s.mode:'hold');
+  const selectedWbMode=selectedDummy?(d.wbMode??null):(panel?panel.wbMode:null);
+  const selectedTarget=selectedDummy?d.target:(panel&&panel.pinnedTarget);
+  const selectedHome=selectedDummy?!!d.home:!!(panel&&panel.home);
+  const selectedDuel=selectedDummy?!!d.inDuel:!!(panel&&panel.inDuel);
+  const mode=selectedMode;
  for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.classList.toggle('on',b.dataset.mode===mode);
 
- const wb=panel?panel.wbMode:null,hasWb=wb!==null&&wb!==undefined;
- const style=panel&&panel.inDuel?'duel':hasWb&&wb!=='off'?'wb':'default';
+ const wb=selectedWbMode,hasWb=wb!==null&&wb!==undefined;
+ const style=selectedDuel?'duel':hasWb&&wb!=='off'?'wb':'default';
  for(const b of document.querySelectorAll('#styleseg [data-style]'))b.classList.toggle('on',b.dataset.style===style);
  const wbBtn=document.querySelector('#styleseg [data-style=wb]');
  wbBtn.disabled=!hasWb;wbBtn.title=hasWb?t('Держит вейблок и закидывает во фриз всех, кто идёт через него'):t('На этой карте нет ВБ, который бот знает');
  const duelBtn=document.querySelector('#styleseg [data-style=duel]');
  duelBtn.classList.toggle('auto',!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
- const dummyOnline=!!(d&&d.phase==='online');
  document.querySelector('#wbseg [data-wb="both"]').hidden=!dummyOnline;
  $('#wbrow').hidden=style!=='wb';
  for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb==='both'?pairWb:b.dataset.wb===wb);
- const pin=panel&&panel.pinnedTarget;
+ const pin=selectedTarget;
  $('#tgt').textContent=pin?t('только {name}',{name:pin}):t('сам выбирает');
  $('#tgt').classList.toggle('pinned',!!pin);
  $('#tgtclear').hidden=!pin;
@@ -165,7 +171,7 @@ function renderPanel(s){
  const spec=!!(panel&&panel.spectating);
  $('#aspec').classList.toggle('on',spec);$('#aspecl').textContent=spec?t('в игру'):t('наблюдать');
  $('#aspec').title=spec?t('Бот возвращается в игру'):t('Бот уходит в наблюдатели');
- const home=!!(panel&&panel.home);
+ const home=selectedHome;
  $('#ahome').classList.toggle('on',home);$('#ahomel').textContent=home?t('забыть дом'):t('дом здесь');
  $('#ahome').title=home?t('Бот больше не возвращается к отмеченной точке'):t('Бот вернётся сюда, когда не с кем драться');
 }
