@@ -124,10 +124,6 @@ function renderPanel(s){
   $('#dummytext').textContent=d.name+(d.wb?' · '+(d.wb==='WB left'?t('держит ВБ слева'):t('держит ВБ справа')):'')+(d.target?' · '+t('цель: {name}',{name:d.target}):'');
   $('#control-target').disabled=!on;
  }
- const dummyOnline=!!d&&d.phase==='online';
- const pairButton=document.querySelector('#wbseg [data-wb=both]');
- if(pairButton)pairButton.hidden=!dummyOnline;
- if(!dummyOnline&&pairWb)pairWb=false;
  const mode=s.acting?s.mode:'hold';
  for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.classList.toggle('on',b.dataset.mode===mode);
 

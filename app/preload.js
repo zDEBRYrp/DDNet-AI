@@ -16,7 +16,6 @@ contextBridge.exposeInMainWorld("ddnet", {
   },
   bot: {
     togglePause: () => invoke("bot:togglePause"),
-    toggleDummy: () => invoke("bot:toggleDummy"),
     restart: () => invoke("bot:restart"),
     reset: () => invoke("bot:reset"),
     disconnect: () => invoke("bot:disconnect"),

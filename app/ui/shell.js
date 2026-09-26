@@ -36,7 +36,6 @@ $("#titlebar").addEventListener("dblclick", (e) => {
   api.window.toggleMaximize();
 });
 $("#b-pause").addEventListener("click", () => api.bot.togglePause());
-$("#b-dummy").addEventListener("click", () => api.bot.toggleDummy());
 $("#b-reset").addEventListener("click", () => api.bot.reset());
 $("#b-disconnect").addEventListener("click", () => api.bot.disconnect());
 $("#b-reconnect").addEventListener("click", () => api.bot.reconnect());
@@ -76,15 +75,6 @@ function render(s) {
   pause.title = `${s.paused ? t("Продолжить игру") : t("Пауза: бот встанет на месте")} (${prettyKey(s.hotkey)})`;
   $("#b-disconnect").disabled = !running;
   $("#b-reset").disabled = !running;
-  const dummy = s.dummy;
-  const dummyOn = !!dummy && dummy.phase === "online";
-  const dummyConfigured = !!dummy && dummy.phase !== "offline" && dummy.phase !== "stopped";
-  const dummyBtn = $("#b-dummy");
-  dummyBtn.disabled = !running;
-  dummyBtn.classList.toggle("on", dummyOn);
-  dummyBtn.classList.toggle("paused", dummyConfigured && !dummyOn);
-  $("#b-dummy-lbl").textContent = dummyOn ? t("Dummy в игре") : dummyConfigured ? t("Dummy подключается") : t("Dummy");
-  dummyBtn.title = dummyOn ? t("Отключить второго тиммейта") : t("Подключить второго тиммейта");
   $("#b-reconnect").disabled = s.screen === "noroot";
   $("#b-pin").classList.toggle("on", s.onTop);
   $("#b-pin").querySelector(".ic").className = `ic ic-${s.onTop ? "pin-off" : "pin"}`;
