@@ -3,8 +3,19 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const DIRS = ["runs/clips", "runs/memory"];
-const FILES = ["runs/ab.json", "runs/ab.prev.json", ".version"];
+const DIRS = ["runs/clips", "runs/memory", "runs/dummy/clips", "runs/dummy/memory"];
+// These are diagnostic state/logs, not credentials. The settings password is
+// still explicitly removed below before settings.json is written.
+const FILES = [
+  "runs/ab.json",
+  "runs/ab.prev.json",
+  "runs/autochat.json",
+  "runs/relations.json",
+  "runs/dummy/relations.json",
+  "runs/g4f-server.log",
+  "runs/g4f-server.err.log",
+  ".version",
+];
 
 const MAX_FILES_PER_DIR = 400;
 
