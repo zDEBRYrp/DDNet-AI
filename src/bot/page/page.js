@@ -214,7 +214,19 @@ function renderChatMode(){$('#chat-global').className='ghost'+(chatMode==='globa
 async function pullChatMode(){try{const c=await(await fetch('/api/chat-mode')).json();chatMode=c.mode==='local'?'local':'global';renderChatMode()}catch{}}
 async function setChatMode(mode){try{const c=await(await fetch('/api/chat-mode',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode})})).json();chatMode=c.mode==='local'?'local':'global';renderChatMode()}catch{}}
 $('#chat-global').addEventListener('click',()=>setChatMode('global'));$('#chat-local').addEventListener('click',()=>setChatMode('local'));pullChatMode();
-$('#chat-ai').addEventListener('click',async()=>{try{const c=await(await fetch('/api/autochat')).json();c.ai=c.ai||{};c.ai.on=!c.ai.on;await fetch('/api/autochat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(c)});$('#chat-ai').className='ghost'+(c.ai.on?' on':'')}catch{}});
+$('#chat-ai').addEventListener('click',async()=>{
+ try{
+  const c=await(await fetch('/api/autochat')).json();c.ai=c.ai||{};c.ai.on=!c.ai.on;
+  await fetch('/api/autochat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(c)});
+  $('#chat-ai').className='ghost'+(c.ai.on?' on':'');
+  if(c.ai.on){
+   $('#reply').textContent=t('проверяю AI…');$('#reply').hidden=false;
+   const r=await fetch('/api/autochat/test',{method:'POST'});const d=await r.json();
+   $('#reply').textContent=r.ok?t('AI работает: {answer}',{answer:d.answer||'—'}):t('AI ошибка: {error}',{error:d.error||'неизвестно'});
+   clearTimeout(replyTimer);replyTimer=setTimeout(()=>{$('#reply').hidden=true},8000);
+  }
+ }catch(e){$('#reply').textContent=t('AI ошибка: {error}',{error:e.message||'нет связи'});$('#reply').hidden=false}
+});
 if($('#send'))$('#send').addEventListener('click',()=>$('#f').requestSubmit());
 
 function mss(sec){const s=Math.round(sec),h=Math.floor(s/3600),m=Math.floor(s/60)%60,r=String(s%60).padStart(2,'0');return h?h+':'+String(m).padStart(2,'0')+':'+r:m+':'+r}
