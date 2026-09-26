@@ -2554,6 +2554,12 @@ export class DdnetBot {
 
       const frozenTarget = this.world.getTee(targetId);
       if (frozenTarget !== undefined && !this.isFriendId(frozenTarget.id)) {
+        // This also covers an explicitly pinned target: once an enemy is
+        // already inside freeze, never let the planner pull it back out.
+        if (frozenTarget.frozen && this.inFreezeTiles(frozenTarget.pos)) {
+          this.applyInput(client, this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 }), self.activeWeapon);
+          return;
+        }
         const direct = this.frozenTargetAction(self, frozenTarget);
         if (direct !== null) {
           this.applyInput(client, direct, self.activeWeapon);
@@ -2988,6 +2994,10 @@ export class DdnetBot {
 
   private frozenTargetIsActionable(self: TeeState, tee: TeeState, d: number): boolean {
     if (!tee.frozen || tee.deepFrozen === true || this.isFriendId(tee.id)) return false;
+    // An enemy already on a freeze tile is finished.  Treating it as an
+    // actionable fresh target makes the planner re-hook it and can pull it
+    // back out of the permanent block.
+    if (this.inFreezeTiles(tee.pos)) return false;
     if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
     const frozenFor = this.world.tick - (this.frozenSinceById.get(tee.id) ?? this.world.tick);
     // Give the planner a short, explicit finishing window for a fresh enemy
@@ -3015,6 +3025,12 @@ export class DdnetBot {
     // Once it has settled, dropping the target is intentional: re-hooking it
     // would pull it back out and was the source of the old endless rehook loop.
     if (target.frozen) {
+      if (this.inFreezeTiles(target.pos)) {
+        if (self.hookedPlayer === target.id || target.hookedPlayer === self.id) {
+          return this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 });
+        }
+        return null;
+      }
       if (!this.frozenTargetIsActionable(self, target, d)) return null;
       const dx = target.pos.x - self.pos.x;
       const dy = target.pos.y - self.pos.y;
