@@ -1038,7 +1038,7 @@ function main() {
 
       else if (firstRun) {
         if (await checkForeignBot()) startBot();
-      } else await restartBot();
+      }
       return { ok: true };
     });
     handle("servers:list", (force) => fetchServers(force === true));

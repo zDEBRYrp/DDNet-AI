@@ -308,8 +308,8 @@ async function openSetup(mode) {
   $("#setup-title").textContent = first ? t("Первый запуск") : t("Бот: сервер, ник, скин");
   $("#setup-sub").textContent = first
     ? t("Пара полей, и бот пойдёт играть. Потом всё это меняется в настройках.")
-    : t("После сохранения бот перезапустится с новыми настройками.");
-  $("#setup-save-lbl").textContent = first ? t("Сохранить и запустить") : t("Сохранить и перезапустить");
+    : t("Настройки сохраняются сразу; новый сервер или ник применятся при следующем запуске.");
+  $("#setup-save-lbl").textContent = first ? t("Сохранить и запустить") : t("Сохранить");
   $("#setup-cancel").hidden = first;
   clearErrors();
   $("#screen-setup").hidden = false;
@@ -371,7 +371,7 @@ $("#setup-form").addEventListener("submit", async (e) => {
       return;
     }
     $("#screen-setup").hidden = true;
-    if (setupMode === "edit") toast({ text: t("Сохранено, бот перезапускается"), kind: "ok" });
+    if (setupMode === "edit") toast({ text: t("Сохранено без перезапуска"), kind: "ok" });
     setupMode = "done";
   } finally {
     $("#setup-save").disabled = false;

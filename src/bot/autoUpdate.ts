@@ -12,8 +12,7 @@ const BRANCH = "main";
 export type UpdateSource = "mine" | "evaluna";
 const SOURCE_REPOS: Record<UpdateSource, string | null> = {
   mine: "zDEBRYrp/DDNet-AI",
-  // Deliberately unset until the exact Evaluna GitHub repository is provided.
-  evaluna: null,
+  evaluna: "Wranked1/DDNet-AI",
 };
 
 const API = process.env.DDNET_AI_UPDATE_API ?? "https://api.github.com";
@@ -213,7 +212,6 @@ export function startAutoUpdate(
       const token = tokenOf(root);
       const have = currentVersion(root);
       const channel = channelOf(token, source);
-      if (source === "evaluna" && SOURCE_REPOS.evaluna === null) throw new Error("не указан точный GitHub-репозиторий Evaluna");
       const sha = await latestCommit(channel);
       if (have === "") {
 
