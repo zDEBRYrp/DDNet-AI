@@ -1307,6 +1307,7 @@ export class DdnetBot {
           "  !mode <name>           fight (default) | passive (never engage) | hold",
           "  !try <name>|off        switch a candidate planner setting on mid-game",
           "  !target <nick>         fight only this player, '!target -' to clear",
+          "  !charge <nick>         pursue and push this player into freeze until it happens",
           "  !brain <name>          planner | net | scripted, swapped live",
           "",
           "  !goto tele             walk to the nearest teleporter",
@@ -1409,6 +1410,7 @@ export class DdnetBot {
         }
         return "killed, respawning";
       }
+      case "charge":
       case "target": {
         if (arg === "" || arg === "-") {
           this.cfg.targetName = undefined;
@@ -1421,7 +1423,13 @@ export class DdnetBot {
         if (hits.length > 1) return `target: '${arg}' matches ${hits.length} players: ${hits.join(", ")} -- be more specific`;
         const name = hits.length === 1 ? hits[0] : arg;
         this.cfg.targetName = name;
-        return hits.length === 1 ? `target set to '${name}'` : `target set to '${name}' (nobody by that name is on the server now)`;
+        return cmd.toLowerCase() === "charge"
+          ? hits.length === 1
+            ? `charging '${name}' until they are frozen`
+            : `charging '${name}' (nobody by that name is on the server now)`
+          : hits.length === 1
+            ? `target set to '${name}'`
+            : `target set to '${name}' (nobody by that name is on the server now)`;
       }
       case "brain": {
         const want = arg.toLowerCase();

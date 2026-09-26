@@ -81,8 +81,10 @@ let replyTimer=0;
 let controlTarget='main';
 async function botCmd(v,show){
  let reply='';
- const line=controlTarget==='dummy'&&!/^!wb\s+both\b/i.test(v)?'!d '+v: v;
+ const shared=/^!(?:target|charge|goto)\b/i.test(v);
+ const line=shared||controlTarget==='main'||/^!wb\s+both\b/i.test(v)?v:'!d '+v;
  try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
+ if(shared&&!$('#dummyrow').hidden){try{await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:'!d '+v})})}catch{}}
  if(show&&reply){const box=$('#reply');box.textContent=tr(reply.split('\n')[0]);box.hidden=false;clearTimeout(replyTimer);replyTimer=setTimeout(()=>{box.hidden=true},5000)}
  tick();
  return reply;
@@ -597,6 +599,20 @@ cv.addEventListener('pointerup',(e)=>{
  if(drag&&moved<=4){const r=cv.getBoundingClientRect();const id=view.pick(e.clientX-r.left,e.clientY-r.top);
   if(id>=0){const fr=view.latest();const self=fr?fr.selfId:-1;view.spectate(id===self?-1:id);$('#spec').value=String(id===self?-1:id);setFollow(true)}}
  drag=null;cv.className=''});
+let ctxMenu=null;
+function showMapMenu(x,y,items){
+ if(!ctxMenu){ctxMenu=document.createElement('div');ctxMenu.id='context-menu';document.body.append(ctxMenu);document.addEventListener('pointerdown',(e)=>{if(ctxMenu&&!ctxMenu.contains(e.target))ctxMenu.hidden=true})}
+ ctxMenu.innerHTML=items.map((it,i)=>'<button type="button" data-ctx="'+i+'">'+esc(it[0])+'</button>').join('');
+ ctxMenu.hidden=false;ctxMenu.style.left=Math.min(x,window.innerWidth-190)+'px';ctxMenu.style.top=Math.min(y,window.innerHeight-180)+'px';
+ ctxMenu.querySelectorAll('[data-ctx]').forEach((b)=>b.addEventListener('click',()=>{ctxMenu.hidden=true;void items[Number(b.dataset.ctx)][1]()}));
+}
+cv.addEventListener('contextmenu',(e)=>{
+ e.preventDefault();
+ const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top,id=view.pick(sx,sy),fr=view.latest(),p=id>=0?(fr?.tees||[]).find((x)=>x.id===id):null;
+ if(p){showMapMenu(e.clientX,e.clientY,[['Вкачать',()=>botCmd('!charge '+p.name,true)],['Цель',()=>botCmd('!target '+p.name,true)],['Идти к нему',()=>botCmd('!goto @'+p.name,true)],['Смотреть',()=>{view.spectate(p.id);$('#spec').value=String(p.id);setFollow(true)}]]);return}
+ const q=view.point(sx,sy),tx=Math.floor(q.x/32),ty=Math.floor(q.y/32);
+ showMapMenu(e.clientX,e.clientY,[['Скопировать '+tx+' '+ty,()=>navigator.clipboard?.writeText(tx+' '+ty)],['Goto '+tx+' '+ty,()=>botCmd('!goto '+tx+' '+ty,true)],['Home здесь',()=>botCmd('!home '+tx+' '+ty,true)]]);
+});
 cv.addEventListener('wheel',(e)=>{e.preventDefault();if(chatOpen){scrollChat(e.deltaY<0?3:-3);return}view.zoomBy(e.deltaY<0?1/1.1:1.1);$('#zoom').value=zoomToSlider(view.zoom())},{passive:false});
 
 document.addEventListener('keydown',(e)=>{
@@ -750,6 +766,7 @@ function renderPlayers(f){
     row+='<div class="pacts" data-pid="'+p.id+'">'+
      '<button type="button" class="ghost'+(pinned?' on':'')+'" data-act="target" data-i="'+i+'" title="'+esc(pinned?t('Снова выбирать цель самому'):t('Драться только с ним (!target)'))+'">'+iconSvg('target')+esc(pinned?t('не цель'):t('цель'))+'</button>'+
      '<button type="button" class="ghost" data-act="goto" data-i="'+i+'" title="'+esc(t('Идти к нему и за ним (!goto)'))+'">'+iconSvg('go')+esc(t('к нему'))+'</button>'+
+     '<button type="button" class="ghost danger" data-act="charge" data-i="'+i+'" title="'+esc(t('Вкачать во фриз и не менять цель'))+'">'+iconSvg('target')+esc(t('Вкачать'))+'</button>'+ 
      '<button type="button" class="ghost" data-act="follow" data-i="'+i+'" title="'+esc(t('Следить за ним'))+'">'+iconSvg('eye')+esc(t('смотреть'))+'</button>'+
      '<button type="button" class="ghost" data-act="nick" data-i="'+i+'" title="'+esc(t('Вставить ник в строку ввода'))+'">'+iconSvg('chat')+esc(t('ник в чат'))+'</button>'+
      (partner?'<span class="prel"><small>'+esc(mark==='friend'?t('второй бот: в тиме'):t('второй бот не в тиме: вернуть -- !friend {name} в консоли',{name:partnerRowName||p.name}))+'</small></span></div>':
@@ -781,8 +798,14 @@ $('#plist').addEventListener('click',async(e)=>{
 
  if(b.dataset.act==='target'){const pinned=panel&&panel.pinnedTarget===p.name;await botCmd(pinned?'!target -':'!target '+p.name,true);playersKey='';renderPlayers(frame);return}
  if(b.dataset.act==='goto'){await botCmd('!goto @'+p.name,true);return}
+ if(b.dataset.act==='charge'){await botCmd('!charge '+p.name,true);return}
  if(b.dataset.act==='follow'){view.spectate(p.id);$('#spec').value=String(p.id);setFollow(true)}
- if(b.dataset.act==='nick')insertNick(p.name);
+if(b.dataset.act==='nick')insertNick(p.name);
+});
+$('#plist').addEventListener('contextmenu',(e)=>{
+ const row=e.target.closest('.prow');if(!row)return;e.preventDefault();
+ const p=playersShown.find((x)=>String(x.id)===row.dataset.pid);if(!p)return;
+ showMapMenu(e.clientX,e.clientY,[['Вкачать',()=>botCmd('!charge '+p.name,true)],['Цель',()=>botCmd('!target '+p.name,true)],['Идти к нему',()=>botCmd('!goto @'+p.name,true)],['Тима',()=>fetch('/api/relation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({list:'friend',name:p.name,on:true})})],['Вар',()=>fetch('/api/relation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({list:'war',name:p.name,on:true})})]]);
 });
 pullRelations();setInterval(pullRelations,5000);
 
