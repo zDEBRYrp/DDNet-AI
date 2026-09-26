@@ -897,8 +897,16 @@ export class DdnetBot {
   private chatTeam = false;
   private aiLastReplyMs = -Infinity;
   private aiBusy = false;
-  autoChatInfo(): AutoChatConfig {
-    return this.autoChat.config();
+  private aiStatus: { state: "idle" | "requesting" | "ok" | "error"; provider: string; model: string; at: string | null; answer: string | null; error: string | null } = {
+    state: "idle",
+    provider: "",
+    model: "",
+    at: null,
+    answer: null,
+    error: null,
+  };
+  autoChatInfo(): AutoChatConfig & { aiStatus: typeof this.aiStatus } {
+    return { ...this.autoChat.config(), aiStatus: { ...this.aiStatus } };
   }
   setAutoChat(raw: unknown): AutoChatConfig {
     const cfg = this.autoChat.set(raw);
@@ -908,9 +916,17 @@ export class DdnetBot {
 
   async testAiChat(): Promise<string> {
     const cfg = this.autoChat.config().ai;
-    const answer = await askG4f(cfg, this.cfg.name, "Проверка связи. Ответь двумя словами.");
-    this.emit("event", `AI чат тест: ${cfg.provider}/${cfg.model} -> ${answer}`);
-    return answer;
+    this.aiStatus = { state: "requesting", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: null };
+    try {
+      const answer = await askG4f(cfg, this.cfg.name, "Проверка связи. Ответь двумя словами.");
+      this.aiStatus = { state: "ok", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer, error: null };
+      this.emit("event", `AI чат тест: ${cfg.provider}/${cfg.model} -> ${answer}`);
+      return answer;
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      this.aiStatus = { state: "error", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: error.slice(0, 1000) };
+      throw err;
+    }
   }
 
   chatMode(): "global" | "local" { return this.chatTeam ? "local" : "global"; }
@@ -2178,14 +2194,19 @@ export class DdnetBot {
     this.aiBusy = true;
     try {
       const cfg = this.autoChat.config().ai;
+      this.aiStatus = { state: "requesting", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: null };
       this.emit("event", `AI чат: запрос от ${who} (${cfg.provider}/${cfg.model})`);
       const answer = await askG4f(cfg, who, message);
       this.aiLastReplyMs = Date.now();
+      this.aiStatus = { state: "ok", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer, error: null };
       const line = `${who}: ${answer}`;
       this.autoSay(line);
       this.emit("event", `AI чат: ответ ${line}`);
     } catch (err) {
-      this.emit("event", `AI чат ошибка (${this.autoChat.config().ai.endpoint}): ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      const cfg = this.autoChat.config().ai;
+      this.aiStatus = { state: "error", provider: cfg.provider, model: cfg.model, at: new Date().toISOString(), answer: null, error: error.slice(0, 1000) };
+      this.emit("event", `AI чат ошибка (${cfg.endpoint}): ${error}`);
     } finally { this.aiBusy = false; }
   }
 

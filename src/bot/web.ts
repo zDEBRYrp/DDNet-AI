@@ -667,7 +667,7 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
     if (url.pathname === "/api/diagnostics" && req.method === "GET") {
       const recent = lines.slice(-120).map(({ seq, ...line }) => ({ seq, ...line }));
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      res.end(JSON.stringify({ generatedAt: new Date().toISOString(), status: bot.status(), lines: recent }));
+      res.end(JSON.stringify({ generatedAt: new Date().toISOString(), status: bot.status(), autoChat: bot.autoChatInfo?.() ?? null, lines: recent }));
       return;
     }
     if (url.pathname === "/api/chat-mode" && req.method === "GET") {
