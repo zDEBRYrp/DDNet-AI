@@ -40,7 +40,7 @@ function walk(dir, fsApi, out, depth = 0) {
   }
 }
 
-function planArchive(root, { demos = [], logText = "", settings = null, fsApi = fs } = {}) {
+function planArchive(root, { demos = [], logText = "", settings = null, diagnostics = null, fsApi = fs } = {}) {
   const entries = [];
   const skipped = [];
   for (const rel of DIRS) {
@@ -70,6 +70,7 @@ function planArchive(root, { demos = [], logText = "", settings = null, fsApi = 
     entries.push({ name: `demos/${base}`, file: d });
   }
   if (logText !== "") entries.push({ name: "app-log.txt", data: logText });
+  if (diagnostics !== null) entries.push({ name: "diagnostics.json", data: JSON.stringify(diagnostics, null, 2) });
   if (settings !== null && typeof settings === "object") {
     const { password: _drop, ...rest } = settings;
     entries.push({ name: "settings.json", data: JSON.stringify(rest, null, 2) });

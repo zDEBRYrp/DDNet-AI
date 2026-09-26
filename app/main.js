@@ -922,7 +922,15 @@ function main() {
       demos = r.filePaths;
     }
     const logText = logBuf.toArray().map((l) => `${new Date(l.t).toISOString()} [${l.s}] ${l.text}`).join("\n");
-    const plan = planArchive(root, { demos, logText, settings: settingsLib.readSettings(root) });
+    let diagnostics = null;
+    if (bot !== null && bot.state === "running") {
+      try {
+        diagnostics = await request(bot.port, "GET", "/api/diagnostics", undefined, 3000);
+      } catch (err) {
+        diagnostics = { error: err instanceof Error ? err.message : String(err), capturedAt: new Date().toISOString() };
+      }
+    }
+    const plan = planArchive(root, { demos, logText, diagnostics, settings: settingsLib.readSettings(root) });
     const out = freeArchivePath(app.getPath("desktop"), archiveName(new Date()));
     toast(t("Собираю архив: {n} файлов...", { n: plan.entries.length }));
     try {
