@@ -326,8 +326,8 @@ ${line(56)}
   const dummyWanted = dummyFlag !== undefined ? !flagOff(dummyFlag) : lowCpuWanted(saved.dummy);
   let dummy = null;
   let dummyName = "";
-  if (dummyWanted) {
-    const given = dummyFlag !== undefined && !flagOnWord(dummyFlag) ? dummyFlag.trim() : typeof saved.dummyName === "string" ? saved.dummyName.trim() : "";
+  const setupDummy = async (requestedName = "") => {
+    const given = requestedName.trim() || (dummyFlag !== undefined && !flagOnWord(dummyFlag) ? dummyFlag.trim() : typeof saved.dummyName === "string" ? saved.dummyName.trim() : "");
     dummyName = (given || `${name.slice(0, 14)}2`).slice(0, 15);
     if (dummyName === name) dummyName = `${name.slice(0, 14)}${name.endsWith("2") ? "3" : "2"}`;
     const dir = path.join(HERE, "runs", "dummy");
@@ -368,6 +368,7 @@ ${line(56)}
     const partnerOf = (d) => (d.phase === "online" && d.selfId >= 0 ? d.selfId : -1);
     dummy.onStatus((d) => bot.setPartnerId(partnerOf(d)));
     const partnerTimer = setInterval(() => {
+      if (dummy === null) return;
       bot.setPartnerId(partnerOf(dummy.status()));
       const mine = bot.ownClientId();
       dummy.setPartnerId(mine >= 0 ? mine : -1);
@@ -375,6 +376,7 @@ ${line(56)}
     partnerTimer.unref?.();
 
     bot.onRelationsSaved = () => {
+      if (dummy === null) return;
       const now = shareableLists(bot.relationsInfo(), dummyName);
       for (const [list, n, on] of listUpdates(sentLists, now)) dummy.setRelation(list, n, on);
       sentLists = now;
@@ -382,8 +384,8 @@ ${line(56)}
 
     const ownStatus = bot.status.bind(bot);
     bot.status = () => {
-      const d = dummy.status();
-      return { ...ownStatus(), dummy: { name: dummyName, phase: d.phase, frozen: d.frozen, acting: d.acting, mode: d.mode, wb: d.wb, target: d.target, id: d.selfId, duelScore: d.duelScore } };
+      const d = dummy?.status();
+      return d === undefined ? ownStatus() : { ...ownStatus(), dummy: { name: dummyName, phase: d.phase, frozen: d.frozen, acting: d.acting, mode: d.mode, wb: d.wb, target: d.target, id: d.selfId, duelScore: d.duelScore } };
     };
 
     const { bothBotsDuels, readDuelFile } = await import("./src/bot/bot.ts");
@@ -412,6 +414,7 @@ ${line(56)}
         return reply;
       }
       const m = /^\s*[!?]d(?:\s+(.*))?$/.exec(lineIn);
+      if (dummy === null) return own(lineIn);
       if (m === null) return own(lineIn);
       const rest = (m[1] ?? "").trim();
       if (rest === "") return `${dummyName}: !d <command>, e.g. !d wb left, !d stop, !d where`;
@@ -426,7 +429,8 @@ ${line(56)}
 
       return dummy.handleConsole(rest.startsWith("!") || rest.startsWith("?") ? rest : `!${rest}`).then((r) => `${dummyName}: ${r}`);
     };
-  }
+  };
+  if (dummyWanted) await setupDummy();
 
   console.log(`
 ${line(56)}
@@ -477,6 +481,22 @@ ${line(56)}
       if (flags["ready-line"] !== undefined) console.log(`WEBUI_FAIL ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  bot.setDummyEnabled = async (enabled, requestedName = "") => {
+    if (!enabled) {
+      if (dummy !== null) await dummy.stop().catch(() => {});
+      dummy = null;
+      bot.setTeammate("");
+      return;
+    }
+    if (dummy !== null) {
+      if (requestedName.trim() === "" || requestedName.trim() === dummyName) return;
+      await dummy.stop().catch(() => {});
+      dummy = null;
+    }
+    await setupDummy(requestedName);
+    if (dummy !== null) void dummy.start().catch((err) => console.log(`[${dummyName}] ${err instanceof Error ? err.message : String(err)}`));
+  };
 
   let stopAutoUpdate = null;
   {

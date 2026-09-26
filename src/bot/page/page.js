@@ -81,7 +81,7 @@ let replyTimer=0;
 let controlTarget='main';
 async function botCmd(v,show){
  let reply='';
- const shared=/^!(?:target|charge|goto)\b/i.test(v);
+ const shared=/^!(?:target|charge|goto|style|mode|go|stop|wb|duel)\b/i.test(v);
  const line=shared||controlTarget==='main'||/^!wb\s+both\b/i.test(v)?v:'!d '+v;
  try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
  if(shared&&!$('#dummyrow').hidden){try{await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:'!d '+v})})}catch{}}

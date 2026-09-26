@@ -121,6 +121,7 @@ export type WebBot = {
   statsLine: () => string;
 
   handleConsole: (line: string) => string | Promise<string>;
+  setDummyEnabled?: (enabled: boolean, name?: string) => void | Promise<void>;
 
   liveMap: () => LiveMap | null;
   liveFrame: () => LiveFrame | null;
@@ -516,8 +517,8 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
       if (req.method === "POST") {
         let raw = "";
         req.on("data", (c) => { raw += String(c); });
-        req.on("end", () => {
-          let reply = t("сохранено, применится после перезапуска");
+        req.on("end", async () => {
+          let reply = t("сохранено");
           try {
             const body = JSON.parse(raw) as Record<string, unknown>;
             const cur = readLaunch();
@@ -531,6 +532,10 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
             writeFileSync(LAUNCH_FILE, JSON.stringify(cur, null, 2));
 
             if (typeof body.ddnetData === "string") cachedRoot = undefined;
+            if (body.dummy === "on" || body.dummy === "off") {
+              await bot.setDummyEnabled?.(body.dummy === "on", typeof body.dummyName === "string" ? body.dummyName : undefined);
+              reply = body.dummy === "on" ? t("сохранено и Dummy включён") : t("сохранено и Dummy выключен");
+            }
           } catch (err) {
             reply = err instanceof Error ? err.message : String(err);
           }
