@@ -423,6 +423,7 @@ async function tick(){
   cell(t('Мозг'),esc(BRAINS[raw('brain')]||raw('brain')||'—')),cell(t('Оружие'),esc(weaponName(raw('weapon')))),
   cell(t('Убил'),get('kills')),cell(t('Умер'),get('deaths')),cell(t('Сам /kill'),get('selfKills')),
   cell(t('Заморозил'),get('blocks')),cell(t('Заморозили'),get('blockedBy')),
+  cell(t('В ожидании блока'),esc(String(s.pendingBlocks??0))),
   cell(t('Хуков'),get('hooksFired')),cell(t('Хаммеров'),get('hammerFires')),cell(t('Клипов'),get('clips'))
  ].join('')+(tryName&&tryName!=='off'?cell(t('Проба'),esc(tryName)):'');
  renderPanel(s);

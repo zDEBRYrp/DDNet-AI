@@ -459,6 +459,7 @@ export type BotStatus = {
   frozen: boolean;
   tick: number;
   stats: BotStats;
+  pendingBlocks: number;
   plan?: RecFrame["plan"];
 
   lowCpu?: boolean;
@@ -1207,6 +1208,7 @@ export class DdnetBot {
       frozen: self?.frozen ?? false,
       tick: this.world.tick,
       stats: this.stats,
+      pendingBlocks: this.pendingBlocks.size,
       plan: this.lastPlan,
       lowCpu: this.lowCpu,
       lag: this.lag.summary(),
