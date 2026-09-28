@@ -3004,6 +3004,10 @@ export class DdnetBot {
   }
 
   private isFriendId(id: number): boolean {
+    // The other local bot is identified by the live client id.  Names may be
+    // duplicated or rewritten by the server ("(1)name"), so name matching
+    // alone could let the planner treat its own Dummy as an enemy mid-run.
+    if (this.partnerId !== null && this.partnerId >= 0 && id === this.partnerId) return true;
     const card = this.client?.SnapshotUnpacker?.AllObjClientInfo?.find((c) => c.id === id);
     if (card === undefined) return false;
     return this.onList("friend", (card.name ?? "").trim().toLowerCase(), id) || this.clanFriend((card.clan ?? "").trim().toLowerCase(), id);
@@ -3858,9 +3862,9 @@ export class DdnetBot {
   }
 
   private isPartnerTee(id: number): boolean {
+    if (this.partnerId !== null && this.partnerId >= 0) return id === this.partnerId;
     if (this.partnerKeys.size === 0) return false;
     const nameKey = this.nameKeyOf(id);
-    if (this.partnerId !== null && this.partnerId >= 0) return id === this.partnerId && partnerNick(this.partnerKeys, nameKey);
     return this.partnerKeys.has(nameKey.replace(DUPLICATE_PREFIX, ""));
   }
 
