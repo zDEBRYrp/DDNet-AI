@@ -1,5 +1,18 @@
 [
  {
+  "id": "2026.09.28.3",
+  "ru": [
+   "Спасение тиммейта теперь начинается с безопасного удара молотом. Хук используется только когда молот не достаёт; после подтягивания бот сразу пытается разморозить, а не держит своего на верёвке.",
+   "Если незамороженный тиммейт уже летит по траектории во фриз, бот может заранее отбить его безопасным ударом. Симуляция запрещает спасение, при котором сам бот попадает во фриз.",
+   "В режиме ВБ бот дополнительно проверяет достижимые подходы сверху, слева и справа в радиусе 14 тайлов, не начиная погоню через опасную зону."
+  ],
+  "en": [
+   "Teammate rescue now starts with a safe hammer hit. The rope is used only beyond hammer reach; after a pull the bot immediately tries to thaw instead of holding its friend indefinitely.",
+   "When an unfrozen teammate is already travelling into freeze, the bot may knock them away before impact. The simulation rejects a rescue that freezes the bot itself.",
+   "WB mode additionally scans reachable approaches above, left and right within fourteen tiles without chasing through a dangerous area."
+  ]
+ },
+ {
   "id": "2026.09.28.2",
   "ru": [
    "Боевой выбор целей возвращён к сохранённой стабильной версии до большого переразбора: убраны принудительная восьмисекундная погоня и бесконечная фиксация на замороженном игроке.",

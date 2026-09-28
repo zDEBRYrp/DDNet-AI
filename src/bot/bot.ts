@@ -199,6 +199,7 @@ const AT_FRIEND_SCORE = 450;
 const RESCUE_RANGE_PX = 24 * 32;
 
 const RESCUE_HAMMER_PX = 56;
+const WB_PERIMETER_SCAN_PX = 14 * 32;
 
 const RESCUE_WALK_RETRY_TICKS = 2 * 50;
 
@@ -3358,7 +3359,14 @@ export class DdnetBot {
         // its hard edge is not a blind spot: somebody standing right outside
         // the entrance can still hook or body-block the WB.  Keep this radius
         // small and local so ordinary distant players remain ignored.
-        wbThreat = meInLeash && !inWbLeash(wb, wbSide, ttx, tty) && d <= BLOCKING_RANGE_PX && !tee.frozen;
+        wbThreat =
+          meInLeash &&
+          !inWbLeash(wb, wbSide, ttx, tty) &&
+          !inWbZone(wb, wbSide, ttx, tty) &&
+          wbWalkAllowed(wb, ttx, tty) &&
+          d <= WB_PERIMETER_SCAN_PX &&
+          this.reachable(selfPos, tee) &&
+          !tee.frozen;
 
         // A nearby player who has just attacked us is a real WB threat even
         // when he is standing outside the entrance leash.  The old filter
@@ -3959,11 +3967,48 @@ export class DdnetBot {
       .allTees()
       .filter((t) => this.rescuable(self, t))
       .sort((a, b) => vdistance(self.pos, a.pos) - vdistance(self.pos, b.pos));
-    if (cands.length === 0) {
+    // Rescue before impact too: if a live teammate is already travelling
+    // into freeze, a safe hammer now is better than following them down and
+    // attempting a rope recovery afterwards.
+    const endangered = this.world
+      .allTees()
+      .filter((t) => t.id !== this.ownId && t.alive && !t.frozen && this.isFriendId(t.id))
+      .filter((t) => vdistance(self.pos, t.pos) <= RESCUE_HAMMER_PX && restsInFreeze(this.world.collision, t.pos, t.vel) > 0)
+      .filter((t) => this.lineIsClear(self.pos, t.pos) && this.rescueHitSafe(self, t))
+      .sort((a, b) => vdistance(self.pos, a.pos) - vdistance(self.pos, b.pos))[0];
+    if (cands.length === 0 && endangered === undefined) {
       this.rescueHammerSince = -1;
       this.rescuePullSince = -1;
       return false;
     }
+
+    // Hammer is the primary rescue. The previous order ran the rope search
+    // first even when the friend was touching us, so the bot pulled them
+    // close and then held them without delivering the thawing hit.
+    const hammerNow = [endangered, ...cands]
+      .filter((t): t is TeeState => t !== undefined)
+      .find((t) => vdistance(self.pos, t.pos) <= RESCUE_HAMMER_PX && this.lineIsClear(self.pos, t.pos) && this.rescueHitSafe(self, t));
+    if (hammerNow !== undefined) {
+      const input: PlayerInput = {
+        ...emptyInput(),
+        targetX: hammerNow.pos.x - self.pos.x,
+        targetY: hammerNow.pos.y - self.pos.y,
+        hook: 0,
+        fire: this.prevInput.fire + 1,
+        wantedWeapon: WEAPON_HAMMER + 1,
+      };
+      if (this.rescueHammerId !== hammerNow.id || this.rescueHammerSince < 0) {
+        this.rescueHammerId = hammerNow.id;
+        this.rescueHammerSince = this.world.tick;
+      }
+      if (this.world.tick - this.rescueSaidTick > 5 * 50) {
+        this.rescueSaidTick = this.world.tick;
+        this.emit("event", hammerNow.frozen ? `hammering friend ${this.nameOfLive(hammerNow.id)} out of the freeze` : `knocking friend ${this.nameOfLive(hammerNow.id)} away from incoming freeze`);
+      }
+      this.applyInput(client, this.guard(self, input), self.activeWeapon);
+      return true;
+    }
+    if (cands.length === 0) return false;
 
     const inFreezeAll = cands.filter((t) => this.inFreezeTiles(t.pos));
     const pulling = inFreezeAll.find((t) => t.id === this.rescuePullId && this.world.tick - this.rescuePullAt < 10);
