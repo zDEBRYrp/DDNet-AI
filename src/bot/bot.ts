@@ -172,10 +172,7 @@ const ACCUSATION = /(?<![a-zа-яё])(bot|бот|боты|aimbot|аимбот|а
 
 export const TARGET_MAX_PX = 1600;
 export const AGGRESSOR_RANGE_PX = 500;
-// A defender must not forget the player that hooked or attacked it merely
-// because the attacker stepped outside the WB rectangle for a moment.
-export const AGGRESSOR_MEMORY_TICKS = 8 * 50;
-const DEFENSE_PURSUIT_PX = 35 * 32;
+export const AGGRESSOR_MEMORY_TICKS = 3 * 50;
 
 const SWING_AT_US_PX = 128;
 
@@ -208,7 +205,7 @@ const RESCUE_WALK_RETRY_TICKS = 2 * 50;
 const RESCUE_GIVE_UP_TICKS = 3 * 50;
 const RESCUE_PAUSE_TICKS = 10 * 50;
 
-const FROZEN_FINISH_TICKS = 6 * 50;
+const FROZEN_FINISH_TICKS = 3 * 50;
 
 const PULL_ROLL_TICKS = 40;
 const PULL_HOLDS = [8, 16, 24, 32] as const;
@@ -2587,15 +2584,6 @@ export class DdnetBot {
       // the normal route is rebuilt by the next snapshot.
       if (this.nav !== null && !this.duelNow() && this.rescueFriend(client, self)) return;
 
-      // A route to HOME/WB/guard must not make the bot ignore a player who
-      // is actively hooking or attacking it outside the usual zone.
-      this.refreshInputClock();
-      const urgentThreat = this.mode === "fight" ? this.pickUrgentThreat(snap, ownId, self.pos) : -1;
-      if (urgentThreat >= 0 && this.nav !== null && this.follow?.id !== urgentThreat) {
-        this.cancelNav(`defending against ${this.nameOf(snap, urgentThreat)}`);
-        this.seekingGame = false;
-        picked = urgentThreat;
-      }
       if (this.nav !== null) {
 
         if (
@@ -2613,7 +2601,7 @@ export class DdnetBot {
         }
       }
 
-      const targetId = this.mode === "fight" ? (urgentThreat >= 0 ? urgentThreat : (picked ?? this.pickTarget(snap, ownId, self.pos))) : -1;
+      const targetId = this.mode === "fight" ? (picked ?? this.pickTarget(snap, ownId, self.pos)) : -1;
       if (targetId !== this.targetId) {
         this.targetId = targetId;
 
@@ -2649,18 +2637,6 @@ export class DdnetBot {
 
           }
         } else this.dullSinceTick = -1;
-      }
-
-      if (urgentThreat >= 0 && targetId === urgentThreat && this.nav === null) {
-        const threat = this.world.getTee(urgentThreat);
-        if (threat !== undefined && vdistance(self.pos, threat.pos) > PATH_NEAR_PX) {
-          const reply = this.gotoPlayer(this.nameOf(snap, urgentThreat), self, { throughFreeze: false });
-          if (this.nav !== null) {
-            this.log(`defending outside the normal zone: ${reply}`);
-            this.driveNav(client, self);
-            return;
-          }
-        }
       }
 
       if (targetId === -1) {
@@ -2739,7 +2715,7 @@ export class DdnetBot {
       if (frozenTarget !== undefined && !this.isFriendId(frozenTarget.id)) {
         // This also covers an explicitly pinned target: once an enemy is
         // already inside freeze, never let the planner pull it back out.
-        if (frozenTarget.frozen && this.isSealed(frozenTarget)) {
+        if (frozenTarget.frozen && this.inFreezeTiles(frozenTarget.pos)) {
           this.applyInput(client, this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 }), self.activeWeapon);
           return;
         }
@@ -3230,16 +3206,12 @@ export class DdnetBot {
 
   private frozenTargetIsActionable(self: TeeState, tee: TeeState, d: number): boolean {
     if (!tee.frozen || tee.deepFrozen === true || this.isFriendId(tee.id)) return false;
-    // Touching a freeze tile is not the same as being permanently blocked.
-    // Bodies often skim a temporary tile and thaw again. Only the simulation
-    // proving that there is no escape makes the target finished.
-    if (this.isSealed(tee)) return false;
+    // An enemy already on a freeze tile is finished. Treating it as an
+    // actionable target makes the planner re-hook it and pull it back out.
+    if (this.inFreezeTiles(tee.pos)) return false;
     if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
-    // Keep finishing while the body is close enough to manipulate. Time alone
-    // must not make a temporary freeze "done": on long-freeze servers that was
-    // exactly why the bot stared until the opponent thawed. The physical seal
-    // check above is the only successful completion condition.
-    return d <= BLOCKING_RANGE_PX;
+    const frozenFor = this.world.tick - (this.frozenSinceById.get(tee.id) ?? this.world.tick);
+    return frozenFor <= FROZEN_FINISH_TICKS && d <= BLOCKING_RANGE_PX;
   }
 
   private bodyPushCanConnect(self: TeeState, tee: TeeState): boolean {
@@ -3262,7 +3234,7 @@ export class DdnetBot {
     // Once it has settled, dropping the target is intentional: re-hooking it
     // would pull it back out and was the source of the old endless rehook loop.
     if (target.frozen) {
-      if (this.isSealed(target)) {
+      if (this.inFreezeTiles(target.pos)) {
         if (self.hookedPlayer === target.id || target.hookedPlayer === self.id) {
           return this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 });
         }
@@ -3308,33 +3280,6 @@ export class DdnetBot {
     const atWar = this.onList("war", nameKey, t.id) || listed(this.relations.clanWar, clanKey);
 
     return !atWar && !this.duelNow() && this.afk(t);
-  }
-
-  private pickUrgentThreat(snap: TwSnapshotUnpacker, ownId: number, selfPos: Vec2): number {
-    const cards = new Map(snap.AllObjClientInfo.map((c) => [c.id, c]));
-    let best = -1;
-    let bestScore = -Infinity;
-    for (const tee of this.world.allTees()) {
-      if (tee.id === ownId || !tee.alive || tee.deepFrozen === true || this.outOfGame(tee.id)) continue;
-      const card = cards.get(tee.id);
-      const nameKey = (card?.name ?? "").trim().toLowerCase();
-      const clanKey = (card?.clan ?? "").trim().toLowerCase();
-      if (this.onList("friend", nameKey, tee.id) || this.onList("ignore", nameKey, tee.id) || this.clanFriend(clanKey, tee.id)) continue;
-      const d = vdistance(selfPos, tee.pos);
-      if (d > DEFENSE_PURSUIT_PX) continue;
-      const hookedUs = tee.hookedPlayer === ownId;
-      const recent = this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
-      if (!hookedUs && !recent) continue;
-      let score = recent ? 1600 : 0;
-      if (hookedUs) score += 2400;
-      if (tee.frozen && !this.isSealed(tee)) score += 1200;
-      score -= d * 0.35;
-      if (score > bestScore) {
-        best = tee.id;
-        bestScore = score;
-      }
-    }
-    return best;
   }
 
   private pickTarget(snap: TwSnapshotUnpacker, ownId: number, selfPos: Vec2): number {
@@ -3451,7 +3396,7 @@ export class DdnetBot {
       if (atWar) score += 900;
       if (tee.hookedPlayer === ownId) score += 1000;
       if (me?.hookedPlayer === tee.id) score += 800;
-      if (tee.frozen && frozenActionable) score += 1300;
+      if (tee.frozen && frozenActionable) score += 900;
       if (!tee.frozen && this.bodyPushCanConnect(me ?? tee, tee)) score += 300;
       if (!tee.frozen && d <= BLOCKING_RANGE_PX && !this.bodyPushCanConnect(me ?? tee, tee)) score -= 250;
 

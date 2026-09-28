@@ -1,5 +1,16 @@
 [
  {
+  "id": "2026.09.28.2",
+  "ru": [
+   "Боевой выбор целей возвращён к сохранённой стабильной версии до большого переразбора: убраны принудительная восьмисекундная погоня и бесконечная фиксация на замороженном игроке.",
+   "Точка защиты и её отображение оставлены, но вне неё используется прежний проверенный бой. Дальнейшие изменения алгоритма будут вноситься небольшими отдельными шагами."
+  ],
+  "en": [
+   "Combat target selection is restored to the preserved pre-overhaul version: the forced eight-second pursuit and indefinite frozen-target fixation are removed.",
+   "The custom guard point and its marker remain, while ordinary combat uses the previous proven behaviour. Further algorithm changes will be isolated into small steps."
+  ]
+ },
+ {
   "id": "2026.09.28",
   "ru": [
    "Новая точка защиты для любой карты: кнопка «точка здесь», команда !guard и пункт ПКМ по карте. Бот держит выбранный район, метка видна на карте, а удаление появляется только когда точка установлена.",
