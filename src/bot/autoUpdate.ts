@@ -7,7 +7,8 @@ import { t } from "../i18n.ts";
 const PUBLIC_REPO = "zDEBRYrp/DDNet-AI";
 const PRIVATE_REPO = "Wranked1/AiDDNet";
 const TOKEN_FILE = "update-token.txt";
-const BRANCH = "main";
+const MINE_BRANCH = "ddnet-ai-our-version";
+const UPSTREAM_BRANCH = "main";
 
 export type UpdateSource = "mine" | "evaluna";
 const SOURCE_REPOS: Record<UpdateSource, string | null> = {
@@ -21,13 +22,13 @@ const PLAIN_GIT = process.env.DDNET_AI_UPDATE_API === undefined;
 const GIT = "https://github.com";
 const CODELOAD = "https://codeload.github.com";
 
-async function headFromGit(repo: string): Promise<string> {
+async function headFromGit(repo: string, branch: string): Promise<string> {
   const res = await fetch(`${GIT}/${repo}.git/info/refs?service=git-upload-pack`, { headers: { "user-agent": "git/2.40 ddnet-ai-bot" } });
   if (res.status === 404) throw new Error(t("репозиторий {repo} не найден", { repo }));
   if (!res.ok) throw new Error(`git ${res.status}`);
   const text = await res.text();
-  const m = new RegExp(`([0-9a-f]{40}) refs/heads/${BRANCH}(?:\\n|\\s|$)`).exec(text);
-  if (m === null) throw new Error("git: no refs/heads/" + BRANCH);
+  const m = new RegExp(`([0-9a-f]{40}) refs/heads/${branch}(?:\\n|\\s|$)`).exec(text);
+  if (m === null) throw new Error("git: no refs/heads/" + branch);
   return m[1];
 }
 
@@ -99,7 +100,7 @@ function stampFile(root: string): string {
   return path.join(root, ".version");
 }
 
-type Channel = { repo: string; token: string };
+type Channel = { repo: string; token: string; branch: string };
 
 function tokenOf(root: string): string {
   const env = process.env.GITHUB_TOKEN ?? process.env.DDNET_AI_TOKEN ?? "";
@@ -113,7 +114,8 @@ function tokenOf(root: string): string {
 
 export function channelOf(token: string, source: UpdateSource = "mine"): Channel {
   const selected = SOURCE_REPOS[source] ?? PUBLIC_REPO;
-  return token === "" ? { repo: selected, token: "" } : { repo: source === "mine" ? PRIVATE_REPO : selected, token };
+  if (token === "") return { repo: selected, token: "", branch: source === "mine" ? MINE_BRANCH : UPSTREAM_BRANCH };
+  return { repo: source === "mine" ? PRIVATE_REPO : selected, token, branch: UPSTREAM_BRANCH };
 }
 
 function headers(ch: Channel): Record<string, string> {
@@ -130,22 +132,22 @@ export function currentVersion(root: string): string {
   }
 }
 
-let lastHead: { repo: string; etag: string; sha: string } | null = null;
+let lastHead: { repo: string; branch: string; etag: string; sha: string } | null = null;
 
 let limitedUntilMs = 0;
 
 async function latestCommit(ch: Channel): Promise<string> {
   if (PLAIN_GIT && ch.token === "") {
     try {
-      return await headFromGit(ch.repo);
+      return await headFromGit(ch.repo, ch.branch);
     } catch {
 
     }
   }
   const h: Record<string, string> = { ...headers(ch), accept: "application/vnd.github.sha" };
-  if (lastHead !== null && lastHead.repo === ch.repo) h["if-none-match"] = lastHead.etag;
-  const res = await fetch(`${API}/repos/${ch.repo}/commits/${BRANCH}`, { headers: h });
-  if (res.status === 304 && lastHead !== null && lastHead.repo === ch.repo) return lastHead.sha;
+  if (lastHead !== null && lastHead.repo === ch.repo && lastHead.branch === ch.branch) h["if-none-match"] = lastHead.etag;
+  const res = await fetch(`${API}/repos/${ch.repo}/commits/${ch.branch}`, { headers: h });
+  if (res.status === 304 && lastHead !== null && lastHead.repo === ch.repo && lastHead.branch === ch.branch) return lastHead.sha;
   if (res.status === 403 || res.status === 429) {
     const reset = Number(res.headers.get("x-ratelimit-reset"));
     const retry = Number(res.headers.get("retry-after"));
@@ -157,7 +159,7 @@ async function latestCommit(ch: Channel): Promise<string> {
   if (!res.ok) throw new Error(`github ${res.status}`);
   const sha = (await res.text()).trim();
   const etag = res.headers.get("etag");
-  if (etag !== null && etag !== "") lastHead = { repo: ch.repo, etag, sha };
+  if (etag !== null && etag !== "") lastHead = { repo: ch.repo, branch: ch.branch, etag, sha };
   return sha;
 }
 
