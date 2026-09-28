@@ -613,8 +613,15 @@ function main() {
       return { ok: false };
     }
     try {
-      await bot.command("!reset");
-      addLog("app", t("бот сброшен: kill + respawn"));
+      let scope = "main";
+      try {
+        const selected = await request(bot.port, "GET", "/api/control-scope", undefined, 1000);
+        if (selected && (selected.scope === "main" || selected.scope === "dummy" || selected.scope === "all")) scope = selected.scope;
+      } catch {
+
+      }
+      await request(bot.port, "POST", "/cmd", { line: "!reset", target: scope }, 2000);
+      addLog("app", scope === "all" ? "оба бота сброшены: kill + respawn" : scope === "dummy" ? "Dummy сброшен: kill + respawn" : t("бот сброшен: kill + respawn"));
       return { ok: true };
     } catch (err) {
       toast(t("Не вышло: {err}", { err: tr(err.message) }), "error");

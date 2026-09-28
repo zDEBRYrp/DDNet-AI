@@ -79,6 +79,7 @@ for(const i of document.querySelectorAll('i[data-ic]'))i.outerHTML=iconSvg(i.dat
 
 let replyTimer=0;
 let controlScope=localStorage.getItem('ddnet-ai-control-scope')||'main';
+function publishControlScope(){fetch('/api/control-scope',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({scope:controlScope})}).catch(()=>{})}
 async function botCmd(v,show){
  let reply='';
  try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:v,target:controlScope})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
@@ -97,8 +98,10 @@ function controlledStatus(s){
 for(const b of document.querySelectorAll('#botseg [data-bot]'))b.addEventListener('click',()=>{
  controlScope=b.dataset.bot||'main';
  localStorage.setItem('ddnet-ai-control-scope',controlScope);
+ publishControlScope();
  if(lastStatus)renderPanel(lastStatus);
 });
+publishControlScope();
 const MODE_CMD={fight:'!go',passive:'!mode passive',hold:'!stop'};
 for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.addEventListener('click',()=>void botCmd(MODE_CMD[b.dataset.mode],true));
 for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.addEventListener('click',()=>void botCmd('!wb '+b.dataset.wb,true));
@@ -133,7 +136,7 @@ function renderPanel(s){
   $('#dummy-state').textContent=text;
  } else $('#dummy-state').textContent=t('Dummy: не подключён');
  const dummyOnline=!!(d&&d.phase==='online');
- if(controlScope==='dummy'&&!dummyOnline){controlScope='main';localStorage.setItem('ddnet-ai-control-scope',controlScope)}
+ if(controlScope==='dummy'&&!dummyOnline){controlScope='main';localStorage.setItem('ddnet-ai-control-scope',controlScope);publishControlScope()}
  for(const b of document.querySelectorAll('#botseg [data-bot]')){
   b.classList.toggle('on',b.dataset.bot===controlScope);
   b.disabled=b.dataset.bot==='dummy'&&!dummyOnline;

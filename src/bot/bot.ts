@@ -1472,7 +1472,9 @@ export class DdnetBot {
       }
       case "kill":
       case "reset": {
-        if (this.world.tick - this.lastKillTick < KILL_COOLDOWN_TICKS) return "reset is on cooldown";
+        // Reset is an explicit user action.  Do not make the user wait for a
+        // previous automatic safety kill; the top Reset button must act now.
+        if (cmd.toLowerCase() === "kill" && this.world.tick - this.lastKillTick < KILL_COOLDOWN_TICKS) return "reset is on cooldown";
         this.lastKillTick = this.world.tick;
         this.stuckAnchor = null;
         this.stats.selfKills++;

@@ -205,6 +205,7 @@ const DUEL_ROWS = 50;
 export function startWebUi(bot: WebBot, port: number, version: string): Promise<WebUi> {
 
   const lines: (BotLine & { seq: number })[] = [];
+  let controlScope: "main" | "dummy" | "all" = "main";
 
   const boot = `${process.pid}-${Date.now().toString(36)}`;
   let seq = 0;
@@ -719,6 +720,26 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
     if (url.pathname === "/api/commands") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "max-age=60" });
       res.end(JSON.stringify(bot.commandNames?.() ?? []));
+      return;
+    }
+    if (url.pathname === "/api/control-scope" && req.method === "GET") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify({ scope: controlScope }));
+      return;
+    }
+    if (url.pathname === "/api/control-scope" && req.method === "POST") {
+      let raw = "";
+      req.on("data", (c) => { raw += String(c); });
+      req.on("end", () => {
+        try {
+          const scope = (JSON.parse(raw) as { scope?: unknown }).scope;
+          if (scope === "main" || scope === "dummy" || scope === "all") controlScope = scope;
+        } catch {
+
+        }
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ scope: controlScope }));
+      });
       return;
     }
     if (url.pathname === "/api/config") {
