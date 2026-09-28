@@ -4000,7 +4000,11 @@ export class DdnetBot {
     // Passive means "do not initiate fights", not "ignore teammates".  A
     // frozen friend is still an explicit rescue obligation in that mode;
     // hold/goto and duel keep their stricter movement semantics.
-    if (self.frozen || (this.mode !== "fight" && this.mode !== "passive")) return false;
+    // A route to WB/home temporarily switches the public mode to `goto`.
+    // That route must not make the bot ignore a frozen teammate; the caller
+    // intentionally gives rescue a chance to interrupt it on every snapshot.
+    const rescueAllowed = this.mode === "fight" || this.mode === "passive" || (this.mode === "goto" && this.navReturnMode === "fight");
+    if (self.frozen || !rescueAllowed) return false;
     // A frozen teammate is an explicit emergency even while an enemy is
     // holding us.  The old gate made the bot abandon rescue exactly in the
     // situations where the teammate needed the fastest possible hit/pull.
@@ -4062,6 +4066,26 @@ export class DdnetBot {
       inFreezeAll[0];
     if (inFreeze !== undefined && (!this.lowCpu || pulling !== undefined || this.stats.ticks % 3 === 0)) {
       const him = inFreeze;
+      const distance = vdistance(self.pos, him.pos);
+      // A failed flying hook previously retried the exact same input while
+      // standing still.  For a nearby teammate, first step into hammer range
+      // after a short miss streak, then thaw with the hammer on the next tick.
+      const missedHook = this.rescuePullId === him.id && self.hookedPlayer !== him.id && this.rescuePullSince >= 0 && this.world.tick - this.rescuePullSince >= 12;
+      if (missedHook && distance <= RESCUE_HAMMER_PX * 3) {
+        const input: PlayerInput = {
+          ...emptyInput(),
+          direction: Math.abs(him.pos.x - self.pos.x) > 8 ? (him.pos.x > self.pos.x ? 1 : -1) : 0,
+          jump: him.pos.y < self.pos.y - 12 ? 1 : 0,
+          hook: 0,
+          targetX: him.pos.x - self.pos.x,
+          targetY: him.pos.y - self.pos.y,
+          fire: this.prevInput.fire + ((this.prevInput.fire & 1) === 0 ? 1 : 2),
+          wantedWeapon: WEAPON_HAMMER + 1,
+        };
+        this.rescuePullSince = this.world.tick;
+        this.applyInput(client, this.guard(self, input), self.activeWeapon);
+        return true;
+      }
       const pull = this.pullLine(self, him);
 
       if (pull === null && self.hookState !== HOOK_IDLE && self.hookedPlayer !== him.id && this.rescuePullId === him.id && this.world.tick - this.rescuePullAt < 10) {

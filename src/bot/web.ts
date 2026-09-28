@@ -757,12 +757,14 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
           const body = JSON.parse(raw) as { line?: string; both?: boolean; target?: "main" | "dummy" | "all" };
           line = String(body.line ?? "");
           const target = body.target === "dummy" || body.target === "all" ? body.target : (body.both ? "all" : "main");
-          const handler = target === "all"
-            ? (bot.handleConsoleBoth ?? bot.handleConsole)
+          // Keep the receiver bound: handleConsole uses instance methods
+          // (for example this.wbCommand).  Calling a saved method reference
+          // made `this` undefined and broke every scoped WB/style command.
+          reply = target === "all"
+            ? (await (bot.handleConsoleBoth?.(line) ?? bot.handleConsole(line))) ?? ""
             : target === "dummy"
-              ? (bot.handleConsoleDummy ?? (() => "Dummy не подключён"))
-              : bot.handleConsole;
-          reply = (await handler(line)) ?? "";
+              ? (await (bot.handleConsoleDummy?.(line) ?? "Dummy не подключён")) ?? ""
+              : (await bot.handleConsole(line)) ?? "";
         } catch (err) {
           reply = err instanceof Error ? err.message : String(err);
         }
