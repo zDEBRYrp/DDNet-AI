@@ -3432,7 +3432,40 @@ export class DdnetBot {
       }
     }
 
+    // Do not let an empty formal WB zone turn into idling. Only after the
+    // normal target pass found nobody, take the nearest ordinary enemy that
+    // can physically be hooked right now. Frozen bodies are deliberately not
+    // fallback targets: once they are in freeze the bot may forget them and
+    // react to a live player instead.
+    if (best === -1) {
+      const fallback = this.nearbyHookFallback(snap, ownId, selfPos);
+      if (fallback >= 0) return fallback;
+    }
     if (best === -1 && keepSettled) return this.targetId;
+    return best;
+  }
+
+  private nearbyHookFallback(snap: TwSnapshotUnpacker, ownId: number, selfPos: Vec2): number {
+    const cards = new Map(snap.AllObjClientInfo.map((c) => [c.id, c]));
+    let best = -1;
+    let bestScore = -Infinity;
+    for (const tee of this.world.allTees()) {
+      if (tee.id === ownId || !tee.alive || tee.frozen || tee.deepFrozen === true || this.outOfGame(tee.id)) continue;
+      const card = cards.get(tee.id);
+      const nameKey = (card?.name ?? "").trim().toLowerCase();
+      const clanKey = (card?.clan ?? "").trim().toLowerCase();
+      if (this.onList("friend", nameKey, tee.id) || this.onList("ignore", nameKey, tee.id) || this.clanFriend(clanKey, tee.id)) continue;
+      const d = vdistance(selfPos, tee.pos);
+      if (d > TUNING.hookLength || !this.lineIsClear(selfPos, tee.pos)) continue;
+      if (this.trapCare() && this.inDeadZone(tee.pos) && !this.inDeadZone(selfPos)) continue;
+      let score = -d;
+      if (tee.hookedPlayer === ownId) score += 1000;
+      if (this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS) score += 600;
+      if (score > bestScore) {
+        best = tee.id;
+        bestScore = score;
+      }
+    }
     return best;
   }
 

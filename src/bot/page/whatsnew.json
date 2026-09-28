@@ -1,5 +1,16 @@
 [
  {
+  "id": "2026.09.28.4",
+  "ru": [
+   "Замороженный враг, уже лежащий во фризе, больше не обязан оставаться целью: бот может забыть его и реагировать на живых игроков.",
+   "Если обычный выбор цели никого не нашёл, бот берёт ближайшего чужого в реальной досягаемости хука — даже сразу за границей ВБ. Резервная цель никогда не перебивает нормальную цель и не выбирается через стену или опасную зону."
+  ],
+  "en": [
+   "An enemy already lying frozen in freeze no longer has to remain the target; the bot may forget them and react to live players.",
+   "When normal target selection finds nobody, the bot takes the nearest enemy within actual hook reach, including just outside the WB boundary. This fallback never overrides a normal target and is not selected through walls or dangerous areas."
+  ]
+ },
+ {
   "id": "2026.09.28.3",
   "ru": [
    "Спасение тиммейта теперь начинается с безопасного удара молотом. Хук используется только когда молот не достаёт; после подтягивания бот сразу пытается разморозить, а не держит своего на верёвке.",
