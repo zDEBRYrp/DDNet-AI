@@ -201,7 +201,10 @@ const RESCUE_RANGE_PX = 24 * 32;
 const RESCUE_HAMMER_PX = 56;
 const WB_PERIMETER_SCAN_PX = 14 * 32;
 
-const RESCUE_WALK_RETRY_TICKS = 2 * 50;
+// A rescue route that has just been interrupted must be rebuilt quickly;
+// waiting two full seconds made the bot visibly hesitate while a teammate
+// was still frozen nearby.
+const RESCUE_WALK_RETRY_TICKS = Math.floor(0.5 * 50);
 
 const RESCUE_GIVE_UP_TICKS = 3 * 50;
 const RESCUE_PAUSE_TICKS = 10 * 50;
@@ -2714,9 +2717,10 @@ export class DdnetBot {
 
       const frozenTarget = this.world.getTee(targetId);
       if (frozenTarget !== undefined && !this.isFriendId(frozenTarget.id)) {
-        // This also covers an explicitly pinned target: once an enemy is
-        // already inside freeze, never let the planner pull it back out.
-        if (frozenTarget.frozen && this.inFreezeTiles(frozenTarget.pos)) {
+        // Stop only when physics says the body is truly sealed. Merely
+        // touching a freeze tile is still the short finishing window in
+        // which frozenThrow should send it into the permanent block.
+        if (frozenTarget.frozen && this.isSealed(frozenTarget)) {
           this.applyInput(client, this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 }), self.activeWeapon);
           return;
         }
@@ -3207,9 +3211,11 @@ export class DdnetBot {
 
   private frozenTargetIsActionable(self: TeeState, tee: TeeState, d: number): boolean {
     if (!tee.frozen || tee.deepFrozen === true || this.isFriendId(tee.id)) return false;
-    // An enemy already on a freeze tile is finished. Treating it as an
-    // actionable target makes the planner re-hook it and pull it back out.
-    if (this.inFreezeTiles(tee.pos)) return false;
+    // Freeze contact alone is not a completed block. Keep a newly frozen body
+    // actionable only until it is physically sealed or the short finishing
+    // window expires. This preserves frozen throws without the old endless
+    // staring/rehooking regression.
+    if (this.isSealed(tee)) return false;
     if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
     const frozenFor = this.world.tick - (this.frozenSinceById.get(tee.id) ?? this.world.tick);
     return frozenFor <= FROZEN_FINISH_TICKS && d <= BLOCKING_RANGE_PX;
@@ -3235,7 +3241,7 @@ export class DdnetBot {
     // Once it has settled, dropping the target is intentional: re-hooking it
     // would pull it back out and was the source of the old endless rehook loop.
     if (target.frozen) {
-      if (this.inFreezeTiles(target.pos)) {
+      if (this.isSealed(target)) {
         if (self.hookedPlayer === target.id || target.hookedPlayer === self.id) {
           return this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 });
         }
@@ -4297,6 +4303,12 @@ export class DdnetBot {
   }
 
   private rescueHitSafe(self: TeeState, him: TeeState): boolean {
+    // A frozen teammate in hammer range must be thawed first. The old
+    // trajectory estimate treated any continued contact with the same freeze
+    // tile as unsafe and therefore chose an endless rope instead of the
+    // one hit which clears the frozen state. Deep/death pockets were already
+    // excluded by `rescuable`; normal freeze is intentionally allowed here.
+    if (him.frozen) return !this.inDeadZone(him.pos);
     const dx = him.pos.x - self.pos.x;
     const dy = him.pos.y - self.pos.y;
     const n = Math.hypot(dx, dy) || 1;
@@ -4305,10 +4317,6 @@ export class DdnetBot {
     const m = Math.hypot(ux, uy) || 1;
     const vel = { x: him.vel.x + (ux / m) * 10, y: him.vel.y + (uy / m) * 10 };
     if (restsInFreeze(this.world.collision, him.pos, vel) > 0) return false;
-    for (const t of this.world.allTees()) {
-      if (t.id === this.ownId || t.id === him.id || !t.alive || !t.frozen || this.isFriendId(t.id)) continue;
-      if (vdistance(t.pos, self.pos) < RESCUE_HAMMER_PX + 16) return false;
-    }
     return true;
   }
 

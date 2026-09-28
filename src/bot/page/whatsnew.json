@@ -1,5 +1,16 @@
 [
  {
+  "id": "2026.09.28.5",
+  "ru": [
+   "Свежезамороженного врага бот снова может добросить в постоянный фриз: касание фриз-тайла не завершает цель, но попытка ограничена коротким окном и прекращается после физически закрытой позиции.",
+   "Замороженного тиммейта в досягаемости бот теперь бьёт молотом, а не держит бесконечно хуком. Маршрут на спасение после сбоя перестраивается через полсекунды вместо двух секунд."
+  ],
+  "en": [
+   "A freshly frozen enemy can again be thrown into permanent freeze: touching a freeze tile does not finish the target, but the attempt is short and stops once physics confirms a sealed position.",
+   "A frozen teammate within reach is now hammered instead of being held by an endless rope. A failed rescue route is rebuilt after half a second instead of two."
+  ]
+ },
+ {
   "id": "2026.09.28.4",
   "ru": [
    "Замороженный враг, уже лежащий во фризе, больше не обязан оставаться целью: бот может забыть его и реагировать на живых игроков.",
