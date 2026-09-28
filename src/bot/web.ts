@@ -122,6 +122,7 @@ export type WebBot = {
 
   handleConsole: (line: string) => string | Promise<string>;
   handleConsoleBoth?: (line: string) => string | Promise<string>;
+  handleConsoleDummy?: (line: string) => string | Promise<string>;
   setProfile?: (profile: { name?: unknown; clan?: unknown; skin?: unknown }) => string;
   setDummyProfile?: (profile: { name?: unknown; clan?: unknown; skin?: unknown }) => void;
   setDummyEnabled?: (enabled: boolean, name?: string) => void | Promise<void>;
@@ -732,9 +733,15 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
         let reply = "";
         let line = "";
         try {
-          const body = JSON.parse(raw) as { line?: string; both?: boolean };
+          const body = JSON.parse(raw) as { line?: string; both?: boolean; target?: "main" | "dummy" | "all" };
           line = String(body.line ?? "");
-          reply = (await (body.both ? (bot.handleConsoleBoth?.(line) ?? bot.handleConsole(line)) : bot.handleConsole(line))) ?? "";
+          const target = body.target === "dummy" || body.target === "all" ? body.target : (body.both ? "all" : "main");
+          const handler = target === "all"
+            ? (bot.handleConsoleBoth ?? bot.handleConsole)
+            : target === "dummy"
+              ? (bot.handleConsoleDummy ?? (() => "Dummy не подключён"))
+              : bot.handleConsole;
+          reply = (await handler(line)) ?? "";
         } catch (err) {
           reply = err instanceof Error ? err.message : String(err);
         }

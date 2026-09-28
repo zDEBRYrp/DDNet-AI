@@ -404,7 +404,7 @@ ${line(56)}
     const ownStatus = bot.status.bind(bot);
     bot.status = () => {
       const d = dummy?.status();
-      return d === undefined ? ownStatus() : { ...ownStatus(), dummy: { name: dummyName, phase: d.phase, frozen: d.frozen, acting: d.acting, mode: d.mode, wb: d.wb, wbMode: d.wbMode, target: d.target, home: d.home, inDuel: d.inDuel, pinnedTarget: d.pinnedTarget, id: d.selfId, duelScore: d.duelScore, plan: d.plan, error: d.error } };
+      return d === undefined ? ownStatus() : { ...ownStatus(), dummy: { name: dummyName, phase: d.phase, frozen: d.frozen, acting: d.acting, mode: d.mode, wb: d.wb, wbMode: d.wbMode, target: d.target, home: d.home, inDuel: d.inDuel, pinnedTarget: d.pinnedTarget, id: d.selfId, duelScore: d.duelScore, panel: d.panel, plan: d.plan, error: d.error } };
     };
 
     const { bothBotsDuels, readDuelFile } = await import("./src/bot/bot.ts");
@@ -455,6 +455,14 @@ ${line(56)}
       const dummyLine = lineIn.trim().startsWith("!") || lineIn.trim().startsWith("?") ? lineIn.trim() : `!${lineIn.trim()}`;
       const dummyReply = await dummy.handleConsole(dummyLine);
       return dummyReply ? `${mainReply}${mainReply ? "; " : ""}${dummyName}: ${dummyReply}` : mainReply;
+    };
+    bot.handleConsoleDummy = async (lineIn) => {
+      if (dummy === null) return "Dummy не подключён";
+      const line = lineIn.trim();
+      if (line === "") return "Команда не указана";
+      if (/^!?(?:wb)\s+both$/i.test(line)) return bot.handleConsole("!wb both");
+      return dummy.handleConsole(line.startsWith("!") || line.startsWith("?") ? line : `!${line}`)
+        .then((reply) => `${dummyName}: ${reply}`);
     };
   };
   if (dummyWanted) await setupDummy();

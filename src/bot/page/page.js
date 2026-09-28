@@ -78,10 +78,10 @@ function iconSvg(name){return '<svg class="ic" viewBox="0 0 16 16" aria-hidden="
 for(const i of document.querySelectorAll('i[data-ic]'))i.outerHTML=iconSvg(i.dataset.ic);
 
 let replyTimer=0;
+let controlScope=localStorage.getItem('ddnet-ai-control-scope')||'main';
 async function botCmd(v,show){
  let reply='';
- const both=!/^!d\b/i.test(v);
- try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:v,both})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
+ try{const r=await(await fetch('/cmd',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({line:v,target:controlScope})})).json();reply=r&&r.reply?String(r.reply):''}catch{}
  if(show&&reply){const box=$('#reply');box.textContent=tr(reply.split('\n')[0]);box.hidden=false;clearTimeout(replyTimer);replyTimer=setTimeout(()=>{box.hidden=true},5000)}
  tick();
  return reply;
@@ -89,6 +89,16 @@ async function botCmd(v,show){
 $('#emo').addEventListener('change',()=>{const v=$('#emo').value;if(v)botCmd('!emote '+v);$('#emo').value=''});
 
 let panel=null,doingText='';
+function controlledStatus(s){
+ const d=s&&s.dummy;
+ if(controlScope==='dummy'&&d)return d;
+ return s||{};
+}
+for(const b of document.querySelectorAll('#botseg [data-bot]'))b.addEventListener('click',()=>{
+ controlScope=b.dataset.bot||'main';
+ localStorage.setItem('ddnet-ai-control-scope',controlScope);
+ if(lastStatus)renderPanel(lastStatus);
+});
 const MODE_CMD={fight:'!go',passive:'!mode passive',hold:'!stop'};
 for(const b of document.querySelectorAll('#modeseg [data-mode]'))b.addEventListener('click',()=>void botCmd(MODE_CMD[b.dataset.mode],true));
 for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.addEventListener('click',()=>void botCmd('!wb '+b.dataset.wb,true));
@@ -102,11 +112,12 @@ $('#aguard').addEventListener('click',()=>void botCmd(panel&&panel.guard?'!guard
 
 $('#lowcpu').addEventListener('change',()=>void botCmd($('#lowcpu').checked?'!low on':'!low off',true));
 function renderPanel(s){
- panel=s.panel||null;
  lastStatus=s;
- $('#lowcpu').checked=s.lowCpu===true;
-
  const d=s.dummy||null;
+ const selected=controlledStatus(s);
+ panel=selected.panel||null;
+ $('#lowcpu').checked=selected.lowCpu===true;
+
 
  const pid=d&&d.phase==='online'&&Number.isFinite(d.id)&&d.id>=0?d.id:-1;
  if(pid!==partnerRowId){partnerRowId=pid;playersKey=''}
@@ -122,7 +133,14 @@ function renderPanel(s){
   $('#dummy-state').textContent=text;
  } else $('#dummy-state').textContent=t('Dummy: не подключён');
  const dummyOnline=!!(d&&d.phase==='online');
- const selectedMode=s.mode||'hold';
+ if(controlScope==='dummy'&&!dummyOnline){controlScope='main';localStorage.setItem('ddnet-ai-control-scope',controlScope)}
+ for(const b of document.querySelectorAll('#botseg [data-bot]')){
+  b.classList.toggle('on',b.dataset.bot===controlScope);
+  b.disabled=b.dataset.bot==='dummy'&&!dummyOnline;
+ }
+ const active=controlledStatus(s);
+ panel=active.panel||null;
+ const selectedMode=active.mode||'hold';
  const selectedWbMode=panel?panel.wbMode:null;
  const selectedTarget=panel&&panel.pinnedTarget;
  const selectedHome=!!(panel&&panel.home);
@@ -137,7 +155,7 @@ function renderPanel(s){
  wbBtn.disabled=!hasWb;wbBtn.title=hasWb?t('Держит вейблок и закидывает во фриз всех, кто идёт через него'):t('На этой карте нет ВБ, который бот знает');
  const duelBtn=document.querySelector('#styleseg [data-style=duel]');
  duelBtn.classList.toggle('auto',!!(panel&&panel.inDuel&&panel.duelMode==='auto'));
- document.querySelector('#wbseg [data-wb="both"]').hidden=!dummyOnline;
+ document.querySelector('#wbseg [data-wb="both"]').hidden=!dummyOnline||controlScope!=='all';
  $('#wbrow').hidden=style!=='wb';
  const pairActive=dummyOnline&&((panel&&panel.wbMode==='left'&&d.wbMode==='right')||(panel&&panel.wbMode==='right'&&d.wbMode==='left'));
  for(const b of document.querySelectorAll('#wbseg [data-wb]'))b.classList.toggle('on',b.dataset.wb==='both'?pairActive:b.dataset.wb===wb);

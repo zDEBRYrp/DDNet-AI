@@ -16,6 +16,7 @@ export type DummyStatus = {
   selfId: number;
 
   duelScore: { name: string; ours: number; theirs: number } | null;
+  panel?: BotStatus["panel"];
   plan?: BotStatus["plan"];
   error?: string;
 };
