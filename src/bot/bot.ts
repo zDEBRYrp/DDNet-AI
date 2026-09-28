@@ -3363,6 +3363,15 @@ export class DdnetBot {
       const freshFrozen = tee.frozen && tee.deepFrozen !== true && frozenFor <= FROZEN_FINISH_TICKS;
       const interfering = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id || this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
       const threatening = this.world.tick - tee.attackTick < AGGRESSOR_MEMORY_TICKS && d < AGGRESSOR_RANGE_PX;
+
+      // A selected WB must win over an arbitrary automatic target while the
+      // bot is still on its way from spawn.  Otherwise a player visible across
+      // the map becomes a 30+ tile chase, the WB route is never started, and
+      // a local dummy can freeze without its partner.  A nearby attacker is
+      // still allowed to interrupt the approach; an explicitly selected
+      // !target/!charge is handled above and intentionally remains absolute.
+      if (wb !== null && wbSide !== null && !meInLeash && !interfering && !threatening) continue;
+
       if (this.guardSpot !== null && !atWar && !interfering && !threatening) {
         const guardPos = { x: this.guardSpot.tx * 32 + 16, y: this.guardSpot.ty * 32 + 16 };
         if (vdistance(guardPos, tee.pos) > GUARD_RADIUS_PX) continue;

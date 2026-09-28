@@ -779,6 +779,14 @@ const onList=(list,p)=>{
  return entries.some((k)=>k!==''&&!partnerish(k)&&(n.includes(k)||dupBare(k)===dupBare(n)));
 };
 async function pullRelations(){try{const r=await(await fetch('/api/relations')).json();if(r&&typeof r==='object')relations=r}catch{}playersKey=''}
+function markFrameFriends(f){
+ const list=f.players&&f.players.length?f.players:f.tees||[];
+ const partners=(relations.partner||[]).map((x)=>dupBare(String(x).toLowerCase()));
+ f.friendIds=list.filter((p)=>{
+  const name=String(p.name||'').toLowerCase();
+  return name!==''&&(onList('friend',p)||partners.includes(dupBare(name)));
+ }).map((p)=>p.id);
+}
 const REL=[['friend',t('тима'),t('Свои: бот их не трогает')],['war',t('вар'),t('Бот бьёт их всегда')],['ignore',t('игнор'),t('Бот не трогает их и не отвечает им')]];
 
 let openPlayer=-1;
@@ -873,6 +881,7 @@ async function pullFrame(){
  try{const f=await(await fetch('/api/live')).json();
   if(f&&f.tees){
    f._at=performance.now();
+   markFrameFriends(f);
    prevFrame=frame;sounds(frame,f);frame=f;view.pushFrame(f);fillSpec(f);renderPlayers(f);
 
    if(f.map&&(f.mapKey||f.map)!==mapKey)await pullMap(f.map,f.mapKey||f.map);

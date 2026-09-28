@@ -84,6 +84,8 @@ type Frame = {
   goal: { x: number; y: number } | null;
   route: { x: number; y: number; kind: string }[];
   markers?: { kind: "home" | "guard"; x: number; y: number }[];
+  /** Client-resolved teammate ids, supplied by page.js from the saved relations. */
+  friendIds?: number[];
   players?: Player[];
   emoticons?: { id: number; e: number; age: number }[];
   roundStart?: number;
@@ -1660,13 +1662,14 @@ export function createView(cv: HTMLCanvasElement, opt: ViewOptions) {
       }
 
       const foe = t.id === f.target;
+      const friend = t.id !== f.selfId && f.friendIds?.includes(t.id) === true;
       const label = t.name || "#" + t.id;
       ctx.font = (28 * k).toFixed(1) + "px " + FONT;
       ctx.lineWidth = Math.max(2, 4 * k);
       ctx.strokeStyle = "rgba(0,0,0,.5)";
       const ny = (bottom - 2.5 - gv.t) * k;
       ctx.strokeText(label, sx, ny);
-      ctx.fillStyle = foe ? "#ffc6ba" : "#fff";
+      ctx.fillStyle = foe ? "#ffc6ba" : friend ? "#aeeab9" : "#fff";
       ctx.fillText(label, sx, ny);
       if (t.clan && st.show.clans) {
         const cy = (bottom - 33 - 2.5 - gv.t) * k;
@@ -2029,7 +2032,7 @@ export function createView(cv: HTMLCanvasElement, opt: ViewOptions) {
       const size = 64 * m.tee;
       uiTee(looksOf(p.id, p), teeX + teeLen / 2, cy + size * 0.08, size);
       ctx.textAlign = "left";
-      ctx.fillStyle = p.id === f.target ? "#ffb4a6" : "#fff";
+      ctx.fillStyle = p.id === f.target ? "#ffb4a6" : f.friendIds?.includes(p.id) === true ? "#aeeab9" : "#fff";
       ctx.fillText(fit(p.name, nameLen), nameX, cy);
       ctx.textAlign = "center";
       ctx.fillStyle = "#fff";
