@@ -98,6 +98,7 @@ $('#walkstop').addEventListener('click',()=>void botCmd('!stop',true));
 $('#aclip').addEventListener('click',()=>void botCmd('!clip',true));
 $('#aspec').addEventListener('click',()=>void botCmd(panel&&panel.spectating?'!join':'!spec',true));
 $('#ahome').addEventListener('click',()=>void botCmd(panel&&panel.home?'!home off':'!home',true));
+$('#aguard').addEventListener('click',()=>void botCmd(panel&&panel.guard?'!guard off':'!guard',true));
 
 $('#lowcpu').addEventListener('change',()=>void botCmd($('#lowcpu').checked?'!low on':'!low off',true));
 function renderPanel(s){
@@ -153,6 +154,9 @@ function renderPanel(s){
  const home=selectedHome;
  $('#ahome').classList.toggle('on',home);$('#ahomel').textContent=home?t('забыть дом'):t('дом здесь');
  $('#ahome').title=home?t('Бот больше не возвращается к отмеченной точке'):t('Бот вернётся сюда, когда не с кем драться');
+ const guard=panel&&panel.guard;
+ $('#aguard').classList.toggle('on',!!guard);$('#aguardl').textContent=guard?t('убрать точку'):t('точка здесь');
+ $('#aguard').title=guard?t('Убрать точку защиты ({x},{y})',{x:guard.tx,y:guard.ty}):t('Защищать эту точку и возвращаться сюда после погони');
 }
 let voteList=[];
 function renderVotes(){
@@ -619,16 +623,18 @@ cv.addEventListener('pointerup',(e)=>{
 let ctxMenu=null;
 function showMapMenu(x,y,items){
  if(!ctxMenu){ctxMenu=document.createElement('div');ctxMenu.id='context-menu';document.body.append(ctxMenu);document.addEventListener('pointerdown',(e)=>{if(ctxMenu&&!ctxMenu.contains(e.target))ctxMenu.hidden=true})}
- ctxMenu.innerHTML=items.map((it,i)=>'<button type="button" data-ctx="'+i+'">'+esc(it[0])+'</button>').join('');
+ ctxMenu.innerHTML=items.map((it,i)=>'<button type="button" data-ctx="'+i+'"'+(it[2]?' class="'+esc(it[2])+'"':'')+'>'+esc(it[0])+'</button>').join('');
  ctxMenu.hidden=false;ctxMenu.style.left=Math.min(x,window.innerWidth-190)+'px';ctxMenu.style.top=Math.min(y,window.innerHeight-180)+'px';
  ctxMenu.querySelectorAll('[data-ctx]').forEach((b)=>b.addEventListener('click',()=>{ctxMenu.hidden=true;void items[Number(b.dataset.ctx)][1]()}));
 }
 cv.addEventListener('contextmenu',(e)=>{
  e.preventDefault();
  const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top,id=view.pick(sx,sy),fr=view.latest(),p=id>=0?(fr?.tees||[]).find((x)=>x.id===id):null;
- if(p){showMapMenu(e.clientX,e.clientY,[['Вкачать',()=>botCmd('!charge '+p.name,true)],['Цель',()=>botCmd('!target '+p.name,true)],['Идти к нему',()=>botCmd('!goto @'+p.name,true)],['Смотреть',()=>{view.spectate(p.id);$('#spec').value=String(p.id);setFollow(true)}]]);return}
+ if(p){showMapMenu(e.clientX,e.clientY,[['Вкачать',()=>botCmd('!charge '+p.name,true)],['Цель',()=>botCmd('!target '+p.name,true)],['Идти к нему',()=>botCmd('!goto @'+p.name,true)],['Тима',()=>fetch('/api/relation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({list:'friend',name:p.name,on:true})})],['Вар',()=>fetch('/api/relation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({list:'war',name:p.name,on:true})})],['Смотреть',()=>{view.spectate(p.id);$('#spec').value=String(p.id);setFollow(true)}]]);return}
  const q=view.point(sx,sy),tx=Math.floor(q.x/32),ty=Math.floor(q.y/32);
- showMapMenu(e.clientX,e.clientY,[['Скопировать '+tx+' '+ty,()=>navigator.clipboard?.writeText(tx+' '+ty)],['Goto '+tx+' '+ty,()=>botCmd('!goto '+tx+' '+ty,true)],['Home здесь',()=>botCmd('!home '+tx+' '+ty,true)]]);
+ const items=[['Скопировать '+tx+' '+ty,()=>navigator.clipboard?.writeText(tx+' '+ty)],['Goto '+tx+' '+ty,()=>botCmd('!goto '+tx+' '+ty,true)],['Home здесь',()=>botCmd('!home '+tx+' '+ty,true)],['Точка защиты '+tx+' '+ty,()=>botCmd('!guard '+tx+' '+ty,true)]];
+ if(panel&&panel.guard)items.push(['Удалить точку защиты',()=>botCmd('!guard off',true),'danger']);
+ showMapMenu(e.clientX,e.clientY,items);
 });
 cv.addEventListener('wheel',(e)=>{e.preventDefault();if(chatOpen){scrollChat(e.deltaY<0?3:-3);return}view.zoomBy(e.deltaY<0?1/1.1:1.1);$('#zoom').value=zoomToSlider(view.zoom())},{passive:false});
 

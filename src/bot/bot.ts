@@ -172,7 +172,10 @@ const ACCUSATION = /(?<![a-zа-яё])(bot|бот|боты|aimbot|аимбот|а
 
 export const TARGET_MAX_PX = 1600;
 export const AGGRESSOR_RANGE_PX = 500;
-export const AGGRESSOR_MEMORY_TICKS = 3 * 50;
+// A defender must not forget the player that hooked or attacked it merely
+// because the attacker stepped outside the WB rectangle for a moment.
+export const AGGRESSOR_MEMORY_TICKS = 8 * 50;
+const DEFENSE_PURSUIT_PX = 35 * 32;
 
 const SWING_AT_US_PX = 128;
 
@@ -205,7 +208,7 @@ const RESCUE_WALK_RETRY_TICKS = 2 * 50;
 const RESCUE_GIVE_UP_TICKS = 3 * 50;
 const RESCUE_PAUSE_TICKS = 10 * 50;
 
-const FROZEN_FINISH_TICKS = 3 * 50;
+const FROZEN_FINISH_TICKS = 6 * 50;
 
 const PULL_ROLL_TICKS = 40;
 const PULL_HOLDS = [8, 16, 24, 32] as const;
@@ -217,6 +220,8 @@ const PULL_NONE_TICKS = 10;
 const GO_HOME_AFTER_TICKS = 4 * 50;
 
 const WB_RETURN_TICKS = 50;
+const GUARD_RADIUS_PX = 11 * 32;
+const GUARD_RETURN_TICKS = 25;
 
 const WB_FINISH = process.env.WB_FINISH !== "0";
 
@@ -436,6 +441,7 @@ export type LiveFrame = {
   doing: string;
   goal: { x: number; y: number } | null;
   route: { x: number; y: number; kind: string }[];
+  markers?: { kind: "home" | "guard"; x: number; y: number }[];
 
   cursor?: { x: number; y: number };
   players?: LivePlayer[];
@@ -463,7 +469,7 @@ export type BotStatus = {
 
   wb?: string | null;
 
-  panel?: { wbMode: "auto" | "left" | "right" | "off" | null; duelMode: "auto" | "on" | "off"; inDuel: boolean; spectating: boolean; pinnedTarget: string | null; home: boolean; tryName: string; duelScore?: { name: string; ours: number; theirs: number } | null };
+  panel?: { wbMode: "auto" | "left" | "right" | "off" | null; duelMode: "auto" | "on" | "off"; inDuel: boolean; spectating: boolean; pinnedTarget: string | null; home: boolean; guard: { tx: number; ty: number } | null; tryName: string; duelScore?: { name: string; ours: number; theirs: number } | null };
   frozen: boolean;
   tick: number;
   stats: BotStats;
@@ -788,6 +794,11 @@ export class DdnetBot {
 
   private homeMap = "?";
 
+  // A map-agnostic custom wayblock. Unlike HOME, this is the place to defend:
+  // the bot keeps returning here and fights anyone who enters its radius.
+  private guardSpot: { tx: number; ty: number } | null = null;
+  private guardMap = "?";
+
   private wbDef: WbDef | null = null;
   private wbMode: "auto" | "left" | "right" | "off" = "auto";
   private readonly wbChooser = new WbSideChooser();
@@ -1041,6 +1052,14 @@ export class DdnetBot {
         }
       }
 
+      if (this.guardSpot !== null) {
+        if (this.guardMap === "?") this.guardMap = change.map_name;
+        else if (change.map_name !== this.guardMap) {
+          this.emit("event", `guard point (${this.guardSpot.tx},${this.guardSpot.ty}) forgotten: it was on '${this.guardMap}', the map is now '${change.map_name}'`);
+          this.guardSpot = null;
+        }
+      }
+
       this.wbDef = null;
       this.wbChooser.reset();
 
@@ -1212,6 +1231,7 @@ export class DdnetBot {
         spectating: this.wantSpectate,
         pinnedTarget: this.cfg.targetName ?? null,
         home: this.home !== null,
+        guard: this.guardSpot === null ? null : { ...this.guardSpot },
         tryName: this.tryName,
         duelScore: this.duelScore === null ? null : { name: this.duelScore.name, ours: this.duelScore.ours, theirs: this.duelScore.theirs },
       },
@@ -1350,6 +1370,7 @@ export class DdnetBot {
           "  !ignore [name|off]     never touch them, never answer them",
           "  !clanwar [clan|off]    the same by clan tag  ·  !clanfriend [clan|off]",
           "  !home [x y|off]        mark a spot to return to when there is nobody to fight",
+          "  !guard [x y|off]       defend this point on any map; chase attackers, then return",
           "  !wb [off|left|right|auto]  hold the wayblock (Copy Love Box): auto takes the emptier side and keeps it",
           "  !duel [on|off|auto]    1 on 1: no WB, no walks; auto turns it on when a duel it accepted starts",
           "  !style default|wb|duel the window's three ways to play",
@@ -1579,6 +1600,27 @@ export class DdnetBot {
           return "!home            mark where you are standing\n!home <x> <y>    mark a tile\n!home off        forget it";
         }
         return `home set to tile (${this.home.tx},${this.home.ty}); it walks back there after ${GO_HOME_AFTER_TICKS / 50}s with nobody to fight${this.wbDef !== null && this.wbMode !== "off" ? " (and does not hold the WB while it is set)" : ""}`;
+      }
+      case "guard":
+      case "spot": {
+        const self = this.ownId >= 0 ? this.world.getTee(this.ownId) : undefined;
+        if (arg.toLowerCase() === "off" || arg === "-") {
+          this.guardSpot = null;
+          return "guard point cleared; automatic WB and normal roaming are active again";
+        }
+        const parts = arg.split(/[\s,]+/).filter((x) => x !== "");
+        if (parts.length === 2 && Number.isFinite(Number(parts[0])) && Number.isFinite(Number(parts[1]))) {
+          this.guardSpot = { tx: Math.trunc(Number(parts[0])), ty: Math.trunc(Number(parts[1])) };
+          this.guardMap = this.mapName();
+        } else if (parts.length === 0) {
+          if (self === undefined) return "no tee yet -- stand at the guard point first, or !guard <x> <y>";
+          this.guardSpot = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
+          this.guardMap = this.mapName();
+        } else {
+          return "!guard            defend where you are standing\n!guard <x> <y>   defend a tile\n!guard off       remove the point";
+        }
+        if (this.nav !== null) this.cancelNav("new guard point");
+        return `guard point set to (${this.guardSpot.tx},${this.guardSpot.ty}); it will hold this area and return after chasing a threat`;
       }
       case "wb":
         return this.wbCommand(arg);
@@ -2544,6 +2586,16 @@ export class DdnetBot {
       // to rescue.  Rescue is an interruptible emergency; once it succeeds,
       // the normal route is rebuilt by the next snapshot.
       if (this.nav !== null && !this.duelNow() && this.rescueFriend(client, self)) return;
+
+      // A route to HOME/WB/guard must not make the bot ignore a player who
+      // is actively hooking or attacking it outside the usual zone.
+      this.refreshInputClock();
+      const urgentThreat = this.mode === "fight" ? this.pickUrgentThreat(snap, ownId, self.pos) : -1;
+      if (urgentThreat >= 0 && this.nav !== null && this.follow?.id !== urgentThreat) {
+        this.cancelNav(`defending against ${this.nameOf(snap, urgentThreat)}`);
+        this.seekingGame = false;
+        picked = urgentThreat;
+      }
       if (this.nav !== null) {
 
         if (
@@ -2561,7 +2613,7 @@ export class DdnetBot {
         }
       }
 
-      const targetId = this.mode === "fight" ? (picked ?? this.pickTarget(snap, ownId, self.pos)) : -1;
+      const targetId = this.mode === "fight" ? (urgentThreat >= 0 ? urgentThreat : (picked ?? this.pickTarget(snap, ownId, self.pos))) : -1;
       if (targetId !== this.targetId) {
         this.targetId = targetId;
 
@@ -2599,6 +2651,18 @@ export class DdnetBot {
         } else this.dullSinceTick = -1;
       }
 
+      if (urgentThreat >= 0 && targetId === urgentThreat && this.nav === null) {
+        const threat = this.world.getTee(urgentThreat);
+        if (threat !== undefined && vdistance(self.pos, threat.pos) > PATH_NEAR_PX) {
+          const reply = this.gotoPlayer(this.nameOf(snap, urgentThreat), self, { throughFreeze: false });
+          if (this.nav !== null) {
+            this.log(`defending outside the normal zone: ${reply}`);
+            this.driveNav(client, self);
+            return;
+          }
+        }
+      }
+
       if (targetId === -1) {
 
         if (this.trek !== null) this.endTrek();
@@ -2619,7 +2683,17 @@ export class DdnetBot {
           }
         }
 
-        if (holding === null && this.nav === null && !this.duelNow() && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
+        if (this.guardSpot !== null && this.nav === null && !this.duelNow() && this.world.tick - this.idleSinceTick > GUARD_RETURN_TICKS) {
+          const here = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
+          if (Math.abs(here.tx - this.guardSpot.tx) > 2 || Math.abs(here.ty - this.guardSpot.ty) > 2) {
+            const reply = this.gotoCommand(`${this.guardSpot.tx} ${this.guardSpot.ty}`, { throughFreeze: false });
+            this.emit("event", `returning to guard point (${this.guardSpot.tx},${this.guardSpot.ty}) -- ${reply}`);
+            if (this.nav !== null) return;
+          }
+          this.idleSinceTick = this.world.tick;
+        }
+
+        if (holding === null && this.guardSpot === null && this.nav === null && !this.duelNow() && this.world.tick - this.travelSinceTick > TRAVEL_RETRY_TICKS) {
           const spot = this.gameSpot(ownId, self.pos);
           if (spot !== null) {
             this.travelSinceTick = this.world.tick;
@@ -2637,7 +2711,7 @@ export class DdnetBot {
             }
           }
         }
-        if (this.home !== null && this.nav === null && !this.duelNow() && this.world.tick - this.idleSinceTick > GO_HOME_AFTER_TICKS) {
+        if (this.guardSpot === null && this.home !== null && this.nav === null && !this.duelNow() && this.world.tick - this.idleSinceTick > GO_HOME_AFTER_TICKS) {
           const here = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
           if (Math.abs(here.tx - this.home.tx) > 2 || Math.abs(here.ty - this.home.ty) > 2) {
             const reply = this.gotoCommand(`${this.home.tx} ${this.home.ty}`);
@@ -2653,7 +2727,8 @@ export class DdnetBot {
         const spot = holding === null || side === null ? null : this.wbSpot(ownId, holding, side, { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) });
         const near = spot !== null && side !== null && holding !== null && inWbHall(holding, side, Math.trunc(self.pos.x / 32), Math.trunc(self.pos.y / 32));
         const watch = near ? sideDef(holding, side).watch : null;
-        this.wander(client, self, near ? spot.tx * 32 + 16 : undefined, watch === null ? undefined : { x: watch.tx * 32 + 16, y: watch.ty * 32 + 16 });
+        const guardAt = this.guardSpot === null ? null : { x: this.guardSpot.tx * 32 + 16, y: this.guardSpot.ty * 32 + 16 };
+        this.wander(client, self, guardAt?.x ?? (near ? spot.tx * 32 + 16 : undefined), guardAt ?? (watch === null ? undefined : { x: watch.tx * 32 + 16, y: watch.ty * 32 + 16 }));
         return;
       }
       this.idleSinceTick = -1;
@@ -2664,7 +2739,7 @@ export class DdnetBot {
       if (frozenTarget !== undefined && !this.isFriendId(frozenTarget.id)) {
         // This also covers an explicitly pinned target: once an enemy is
         // already inside freeze, never let the planner pull it back out.
-        if (frozenTarget.frozen && this.inFreezeTiles(frozenTarget.pos)) {
+        if (frozenTarget.frozen && this.isSealed(frozenTarget)) {
           this.applyInput(client, this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 }), self.activeWeapon);
           return;
         }
@@ -2873,7 +2948,12 @@ export class DdnetBot {
                 ? this.wbChooser.side === "left"
                   ? t("держит ВБ слева")
                   : t("держит ВБ справа")
+                : this.guardSpot !== null
+                  ? t("держит точку ({x},{y})", { x: this.guardSpot.tx, y: this.guardSpot.ty })
                 : t("цели нет");
+    const markers: LiveFrame["markers"] = [];
+    if (this.home !== null) markers.push({ kind: "home", x: this.home.tx * 32 + 16, y: this.home.ty * 32 + 16 });
+    if (this.guardSpot !== null) markers.push({ kind: "guard", x: this.guardSpot.tx * 32 + 16, y: this.guardSpot.ty * 32 + 16 });
     return {
       tick: this.world.tick,
       selfId: this.ownId,
@@ -2883,6 +2963,7 @@ export class DdnetBot {
       doing,
       goal: goal === null ? null : { x: Math.round(goal.x), y: Math.round(goal.y) },
       route: steps.slice(0, 40).map((s) => ({ x: s.x, y: s.y, kind: s.kind })),
+      markers,
       cursor: cursorOf(this.prevInput),
       players,
       roundStart: typeof gameInfo?.round_start_tick === "number" ? gameInfo.round_start_tick : undefined,
@@ -3149,19 +3230,16 @@ export class DdnetBot {
 
   private frozenTargetIsActionable(self: TeeState, tee: TeeState, d: number): boolean {
     if (!tee.frozen || tee.deepFrozen === true || this.isFriendId(tee.id)) return false;
-    // An enemy already on a freeze tile is finished.  Treating it as an
-    // actionable fresh target makes the planner re-hook it and can pull it
-    // back out of the permanent block.
-    if (this.inFreezeTiles(tee.pos)) return false;
+    // Touching a freeze tile is not the same as being permanently blocked.
+    // Bodies often skim a temporary tile and thaw again. Only the simulation
+    // proving that there is no escape makes the target finished.
+    if (this.isSealed(tee)) return false;
     if (tee.hookedPlayer === self.id || self.hookedPlayer === tee.id) return true;
-    const frozenFor = this.world.tick - (this.frozenSinceById.get(tee.id) ?? this.world.tick);
-    // Give the planner a short, explicit finishing window for every fresh
-    // enemy freeze.  The body can still be in the air or in the approach to
-    // the hazard, so requiring `nearFreeze` here made the bot abandon exactly
-    // the cases where a second pull was needed to finish the block.  The
-    // planner's frozen-throw simulation decides whether a safe route to the
-    // freeze exists; once the body settles, the target is dropped as before.
-    return frozenFor <= FROZEN_FINISH_TICKS && d <= BLOCKING_RANGE_PX;
+    // Keep finishing while the body is close enough to manipulate. Time alone
+    // must not make a temporary freeze "done": on long-freeze servers that was
+    // exactly why the bot stared until the opponent thawed. The physical seal
+    // check above is the only successful completion condition.
+    return d <= BLOCKING_RANGE_PX;
   }
 
   private bodyPushCanConnect(self: TeeState, tee: TeeState): boolean {
@@ -3184,7 +3262,7 @@ export class DdnetBot {
     // Once it has settled, dropping the target is intentional: re-hooking it
     // would pull it back out and was the source of the old endless rehook loop.
     if (target.frozen) {
-      if (this.inFreezeTiles(target.pos)) {
+      if (this.isSealed(target)) {
         if (self.hookedPlayer === target.id || target.hookedPlayer === self.id) {
           return this.guard(self, { ...emptyInput(), hook: 0, fire: 0, wantedWeapon: WEAPON_HAMMER + 1 });
         }
@@ -3230,6 +3308,33 @@ export class DdnetBot {
     const atWar = this.onList("war", nameKey, t.id) || listed(this.relations.clanWar, clanKey);
 
     return !atWar && !this.duelNow() && this.afk(t);
+  }
+
+  private pickUrgentThreat(snap: TwSnapshotUnpacker, ownId: number, selfPos: Vec2): number {
+    const cards = new Map(snap.AllObjClientInfo.map((c) => [c.id, c]));
+    let best = -1;
+    let bestScore = -Infinity;
+    for (const tee of this.world.allTees()) {
+      if (tee.id === ownId || !tee.alive || tee.deepFrozen === true || this.outOfGame(tee.id)) continue;
+      const card = cards.get(tee.id);
+      const nameKey = (card?.name ?? "").trim().toLowerCase();
+      const clanKey = (card?.clan ?? "").trim().toLowerCase();
+      if (this.onList("friend", nameKey, tee.id) || this.onList("ignore", nameKey, tee.id) || this.clanFriend(clanKey, tee.id)) continue;
+      const d = vdistance(selfPos, tee.pos);
+      if (d > DEFENSE_PURSUIT_PX) continue;
+      const hookedUs = tee.hookedPlayer === ownId;
+      const recent = this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
+      if (!hookedUs && !recent) continue;
+      let score = recent ? 1600 : 0;
+      if (hookedUs) score += 2400;
+      if (tee.frozen && !this.isSealed(tee)) score += 1200;
+      score -= d * 0.35;
+      if (score > bestScore) {
+        best = tee.id;
+        bestScore = score;
+      }
+    }
+    return best;
   }
 
   private pickTarget(snap: TwSnapshotUnpacker, ownId: number, selfPos: Vec2): number {
@@ -3292,6 +3397,10 @@ export class DdnetBot {
       const freshFrozen = tee.frozen && tee.deepFrozen !== true && frozenFor <= FROZEN_FINISH_TICKS;
       const interfering = tee.hookedPlayer === ownId || me?.hookedPlayer === tee.id || this.world.tick - (this.atUsById.get(tee.id) ?? -Infinity) < AT_US_MEMORY_TICKS;
       const threatening = this.world.tick - tee.attackTick < AGGRESSOR_MEMORY_TICKS && d < AGGRESSOR_RANGE_PX;
+      if (this.guardSpot !== null && !atWar && !interfering && !threatening) {
+        const guardPos = { x: this.guardSpot.tx * 32 + 16, y: this.guardSpot.ty * 32 + 16 };
+        if (vdistance(guardPos, tee.pos) > GUARD_RADIUS_PX) continue;
+      }
       let inWb = false;
       let wbThreat = false;
       if (wb !== null && wbSide !== null) {
@@ -3342,7 +3451,7 @@ export class DdnetBot {
       if (atWar) score += 900;
       if (tee.hookedPlayer === ownId) score += 1000;
       if (me?.hookedPlayer === tee.id) score += 800;
-      if (tee.frozen && frozenActionable) score += 900;
+      if (tee.frozen && frozenActionable) score += 1300;
       if (!tee.frozen && this.bodyPushCanConnect(me ?? tee, tee)) score += 300;
       if (!tee.frozen && d <= BLOCKING_RANGE_PX && !this.bodyPushCanConnect(me ?? tee, tee)) score -= 250;
 
@@ -3520,7 +3629,7 @@ export class DdnetBot {
 
   commandNames(): string[] {
     return [
-      "stop","go","war","friend","ignore","clanwar","clanfriend","home","wb","clip","log","mode","try",
+      "stop","go","war","friend","ignore","clanwar","clanfriend","home","guard","spot","wb","clip","log","mode","try",
       "target","brain","goto","stats","where","emote","reset","kill","yes","no","votes","vote","spec","join","lang","quit","help","seek","say","duel","style","low",
     ];
   }
@@ -4181,7 +4290,7 @@ export class DdnetBot {
   }
 
   private wbHolding(): WbDef | null {
-    if (this.wbDef === null || this.wbMode === "off" || this.home !== null || this.duelNow()) return null;
+    if (this.wbDef === null || this.wbMode === "off" || this.home !== null || this.guardSpot !== null || this.duelNow()) return null;
     if (Date.now() < this.wbPausedUntilMs) return null;
     return this.mode === "fight" || (this.mode === "goto" && this.navReturnMode === "fight") ? this.wbDef : null;
   }
@@ -4976,6 +5085,10 @@ export class DdnetBot {
   }
 
   private wbPlanOverrides(self: TeeState): Partial<PlannerConfig> | null {
+    if (this.guardSpot !== null) {
+      const p = { x: this.guardSpot.tx * 32 + 16, y: this.guardSpot.ty * 32 + 16 };
+      if (vdistance(self.pos, p) <= GUARD_RADIUS_PX + 4 * 32) return WB_PLAN_OVERRIDES;
+    }
     const def = this.wbHolding();
     const side = this.wbChooser.side;
     if (def === null || side === null || !inWbHall(def, side, Math.trunc(self.pos.x / 32), Math.trunc(self.pos.y / 32))) return null;

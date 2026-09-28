@@ -83,6 +83,7 @@ type Frame = {
   doing: string;
   goal: { x: number; y: number } | null;
   route: { x: number; y: number; kind: string }[];
+  markers?: { kind: "home" | "guard"; x: number; y: number }[];
   players?: Player[];
   emoticons?: { id: number; e: number; age: number }[];
   roundStart?: number;
@@ -1507,6 +1508,29 @@ export function createView(cv: HTMLCanvasElement, opt: ViewOptions) {
 
     const gv = viewOf({ px: 100, py: 100, ox: 0, oy: 0 }, v);
     setWorld(gv, dpr);
+
+    if (cur && cur.f.markers) {
+      for (const marker of cur.f.markers) {
+        const guard = marker.kind === "guard";
+        ctx.save();
+        ctx.strokeStyle = guard ? (opt.css("--bad") || "#ff8f7f") : (opt.css("--ok") || "#9fe8b0");
+        ctx.fillStyle = guard ? "rgba(255,80,70,.14)" : "rgba(80,220,130,.12)";
+        ctx.lineWidth = (guard ? 4 : 3) / gv.s;
+        ctx.beginPath();
+        ctx.arc(marker.x, marker.y, guard ? 23 : 19, 0, 6.2832);
+        ctx.fill();
+        ctx.stroke();
+        if (guard) {
+          ctx.beginPath();
+          ctx.moveTo(marker.x - 31, marker.y);
+          ctx.lineTo(marker.x + 31, marker.y);
+          ctx.moveTo(marker.x, marker.y - 31);
+          ctx.lineTo(marker.x, marker.y + 31);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
 
     if (cur && st.show.route && cur.f.route && cur.f.route.length) {
       ctx.strokeStyle = opt.css("--acc") || "#a8cbee";

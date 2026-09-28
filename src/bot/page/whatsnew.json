@@ -1,5 +1,18 @@
 [
  {
+  "id": "2026.09.28",
+  "ru": [
+   "Новая точка защиты для любой карты: кнопка «точка здесь», команда !guard и пункт ПКМ по карте. Бот держит выбранный район, метка видна на карте, а удаление появляется только когда точка установлена.",
+   "Защита больше не ограничена прямоугольником ВБ: игрок, который хукнул или атаковал бота, запоминается на 8 секунд, может быть преследован вне зоны, после чего бот возвращается на свою точку.",
+   "Исправлено главное зависание на замороженных: касание фриз-тайла больше не считается готовым блоком. Бот продолжает доводить свежезамороженного до действительно закрытого фриза и только после этого отпускает его."
+  ],
+  "en": [
+   "A custom guard point for every map: the Point here button, !guard command and map context action. The bot holds that area, draws its marker and only offers removal while it exists.",
+   "Defence is no longer clipped to the WB rectangle: a player who hooks or attacks the bot is remembered for eight seconds and may be pursued outside it, after which the bot returns.",
+   "Fixed the main frozen-player stall: merely touching a freeze tile no longer counts as a completed block. A freshly frozen enemy is handled until the physics check says the position is truly sealed."
+  ]
+ },
+ {
   "id": "2026.09.26h",
   "ru": [
    "ВБ включается только на той версии Copy Love Box, под которую он сделан (размер карты и точки зацепа в трубе). На другой версии с тем же именем (например, на Swarfey) бот играет обычный блок, а не гибнет в трубе раз за разом.",
