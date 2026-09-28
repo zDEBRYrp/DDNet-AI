@@ -2659,7 +2659,11 @@ export class DdnetBot {
         if (holding !== null && this.nav === null && !this.duelNow()) {
           const here = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
           const side = this.wbChooser.side;
-          if (side !== null && !inWbHall(holding, side, here.tx, here.ty)) {
+          // An idle guard has a specific safe tile, not merely a whole hall.
+          // Re-entering the hall and then wandering was enough for it to pace
+          // along an edge until one random step reached the freeze.
+          const spot = side === null ? null : this.wbSpot(ownId, holding, side, here);
+          if (side !== null && (spot === null || !inWbHall(holding, side, here.tx, here.ty) || !onWbSpot(here, spot))) {
             this.walkToWb(ownId, self);
             if (this.nav !== null) return;
           }
@@ -2710,6 +2714,10 @@ export class DdnetBot {
         const near = spot !== null && side !== null && holding !== null && inWbHall(holding, side, Math.trunc(self.pos.x / 32), Math.trunc(self.pos.y / 32));
         const watch = near ? sideDef(holding, side).watch : null;
         const guardAt = this.guardSpot === null ? null : { x: this.guardSpot.tx * 32 + 16, y: this.guardSpot.ty * 32 + 16 };
+        if (guardAt === null && near && spot !== null && watch !== null) {
+          this.holdWbIdle(client, self, { x: spot.tx * 32 + 16, y: spot.ty * 32 + 16 }, { x: watch.tx * 32 + 16, y: watch.ty * 32 + 16 });
+          return;
+        }
         this.wander(client, self, guardAt?.x ?? (near ? spot.tx * 32 + 16 : undefined), guardAt ?? (watch === null ? undefined : { x: watch.tx * 32 + 16, y: watch.ty * 32 + 16 }));
         return;
       }
@@ -5219,6 +5227,32 @@ export class DdnetBot {
     const inFlight: PlayerInput[] = [];
     for (let k = 1; k <= lag; k++) inFlight.push(at(k));
     return { held: at(0), inFlight };
+  }
+
+  /**
+   * Idle behaviour while a bot already owns a WB.  This must be deliberately
+   * boring: target selection runs every tick, so an approaching player will
+   * interrupt it immediately.  Until then, random wander/jump/hook inputs
+   * only create an unnecessary way to walk off the guarded platform.
+   */
+  private holdWbIdle(client: TwClient, self: TeeState, anchor: Vec2, watch: Vec2): void {
+    const dx = anchor.x - self.pos.x;
+    const dy = anchor.y - self.pos.y;
+    const settled = Math.abs(dx) <= 12 && Math.abs(dy) <= 20;
+    const input: PlayerInput = {
+      ...emptyInput(),
+      direction: settled ? 0 : dx < 0 ? -1 : 1,
+      targetX: watch.x - self.pos.x,
+      targetY: watch.y - self.pos.y,
+      fire: 0,
+      hook: 0,
+      jump: 0,
+      wantedWeapon: WEAPON_HAMMER + 1,
+    };
+
+    // guard simulates the next inputs.  It may replace the correction with a
+    // defensive input, but it never gets a random exploratory jump or hook.
+    this.applyInput(client, this.guard(self, input), self.activeWeapon);
   }
 
   private wander(client: TwClient, self: TeeState, anchorX?: number, lookAt?: Vec2): void {
