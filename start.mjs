@@ -262,6 +262,7 @@ ${line(56)}
   const flagOff = (v) => typeof v === "string" && ["off", "false", "no", "0"].includes(v.trim().toLowerCase());
   const flagOnWord = (v) => typeof v !== "string" || ["", "on", "true", "yes", "1"].includes(v.trim().toLowerCase());
   const lowCpu = flags["low-cpu"] !== undefined ? !flagOff(flags["low-cpu"]) : lowCpuWanted(saved.lowCpu);
+  const savedPlanner = saved.plannerConfig && typeof saved.plannerConfig === "object" && !Array.isArray(saved.plannerConfig) ? saved.plannerConfig : undefined;
 
   const loadFrom = policyFile ?? policies[0];
   let policy;
@@ -304,7 +305,8 @@ ${line(56)}
     policy,
     scripted: !policyFile && !usePlanner,
     planner: usePlanner,
-    plannerCfg: bold ? PLANNER_BOLD : undefined,
+    plannerDefaults: bold ? PLANNER_BOLD : undefined,
+    plannerCfg: savedPlanner,
     opponentDirNet,
     mapDir: path.join(HERE, "maps"),
     settingsFile,

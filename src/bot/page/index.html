@@ -5,6 +5,7 @@
  <button class="tab on" data-tab="game" type="button">Игра</button>
  <button class="tab" data-tab="clips" type="button">Записи</button>
  <button class="tab" data-tab="cfg" type="button">Настройки</button>
+ <button class="tab" id="plan-tab" data-tab="planner" type="button" hidden>Планировщик</button>
  <span class="tabsp"></span>
  <span class="who"><span class="dot" id="dot"></span><span id="head">…</span></span>
  <span class="ver" id="ver"></span>
@@ -205,8 +206,21 @@
  <div class="ac-row" style="margin-top:10px"><span class="ac-title" style="flex:none">Кадров в секунду</span><select id="fpscap" title="Меньше кадров: меньше нагрузки на процессор"><option value="30">30</option><option value="60">60</option><option value="0">без ограничения</option></select></div>
  <div class="credits" id="credits" data-t="@credits">Карта, скины, оружие, эмоции и шрифт в окне рисуются файлами <b>DDNet / Teeworlds</b> (data: CC-BY-SA 3.0; скины, шрифты и ассеты под своими лицензиями, у каждого автора свои). В бота они не входят: окно берёт их из твоей установки DDNet (и наборы, выбранные в её настройках) во время работы, а чего у тебя нет, скачивает из самого DDNet: скины в runs/skincache, графику и звуки в runs/ddnet-data (это выключается галочкой выше). Тайлсеты, встроенные в саму карту, приходят с картой. Нет установки: стены, фриз и ти, для которых нет картинок, окно рисует своей графикой. Код отрисовки частично повторяет исходники DDNet (zlib).</div>
 </div>
-<details class="card"><summary>Для продвинутых: настройки поиска</summary>
- <div class="hint">Всё уже настроено на лучшее, крутить ничего не нужно. Меняются на лету: бот пересобирает поиск со следующего решения. Изменённое подсвечено; пустое поле возвращает значение по умолчанию.</div>
+</section>
+<section data-pane="planner" hidden>
+<div class="card">
+ <div class="k" style="margin-bottom:8px">Планировщик</div>
+ <div class="hint">Настройки применяются сразу: следующий ход рассчитывается уже с ними. «Дефолт» — ровно текущая релизная логика, без новых экспериментов.</div>
+ <div class="bar" id="planner-profiles" style="margin-top:10px"></div>
+ <div class="hint" id="planner-note" style="margin-top:8px"></div>
+</div>
+<div class="card">
+ <div class="k" style="margin-bottom:8px">Цели</div>
+ <label class="check" title="Если выключить, бот не будет сам брать AFK-игроков как цели; вручную назначенный вар и target остаются сильнее."><input type="checkbox" id="planner-afk"> Блокать AFK-игроков</label>
+</div>
+<details class="card" open>
+ <summary>Тонкая настройка расчёта</summary>
+ <div class="hint">Глубина и количество вариантов повышают качество, но увеличивают нагрузку на CPU. Изменённые поля подсвечены; пустое поле возвращает релизное значение.</div>
  <div class="bar"><button class="ghost" id="knobreset" type="button" title="Вернуть все настройки поиска к тем, с которыми вышел релиз">Сбросить всё по умолчанию</button><span class="k" id="knobnote" style="margin:0"></span></div>
  <table id="knobs" class="ab" style="margin-top:8px"></table>
 </details>

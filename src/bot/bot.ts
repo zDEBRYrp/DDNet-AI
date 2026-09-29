@@ -635,6 +635,9 @@ export type BotConfig = {
 
   planner?: boolean;
 
+  /** Release baseline, kept separately so saved user tuning can be reset. */
+  plannerDefaults?: ConstructorParameters<typeof Planner>[0];
+
   plannerCfg?: ConstructorParameters<typeof Planner>[0];
 
   memoryDir?: string;
@@ -899,8 +902,8 @@ export class DdnetBot {
       throw new Error("DdnetBot: one of policy, scripted or planner is required");
     }
 
-    Object.assign(this.baseCfg, LIVE_PLANNER_CFG, cfg.plannerCfg ?? {});
-    Object.assign(this.startCfg, this.baseCfg);
+    Object.assign(this.startCfg, LIVE_PLANNER_CFG, cfg.plannerDefaults ?? {});
+    Object.assign(this.baseCfg, this.startCfg, cfg.plannerCfg ?? {});
     if (cfg.policy) {
       const { inputs, outputs } = cfg.policy.shape;
       if (inputs !== OBS_SIZE || outputs !== ACTION_SIZE) {
@@ -3404,10 +3407,10 @@ export class DdnetBot {
         inWb = inWbZone(wb, wbSide, ttx, tty);
       }
 
-      // An AFK tee outside the game is not worth chasing, but an AFK tee
-      // standing in our own WB is still blocking the entrance and must be
-      // handled like any other obstruction.
-      if (!atWar && !this.duelNow() && this.afk(tee) && !tee.frozen && !interfering && d > BLOCKING_RANGE_PX && !inWb) continue;
+      // AFK tees are block targets by default.  On crowded servers this can
+      // be disabled live from the Planner tab, while an explicit war remains
+      // an intentional override.
+      if (this.cfg.plannerCfg?.blockAfk === false && !atWar && !this.duelNow() && this.afk(tee) && !tee.frozen && !interfering) continue;
 
       if (this.trapCare() && this.inDeadZone(tee.pos) && !this.inDeadZone(selfPos)) continue;
 
@@ -3666,8 +3669,35 @@ export class DdnetBot {
     for (const k of Object.keys(this.baseCfg)) delete this.baseCfg[k];
     Object.assign(this.baseCfg, this.startCfg);
     this.planner = null;
+    this.savePlannerCfg();
     this.log("search settings: all back to the release defaults");
     return "all search settings back to the defaults";
+  }
+
+  plannerProfiles(): { id: string; name: string; note: string }[] {
+    return [
+      { id: "default", name: "Дефолт", note: "Текущая релизная настройка клиента" },
+      { id: "deep", name: "Глубокий", note: "Больше вариантов и точнее ближайшие действия" },
+      { id: "max", name: "Максимум", note: "Самый тяжёлый поиск для мощного ПК" },
+    ];
+  }
+
+  setPlannerProfile(id: unknown): string {
+    const profile = String(id ?? "").toLowerCase();
+    if (profile === "default") return this.resetKnobs();
+    const add: Record<string, unknown> | undefined = profile === "deep"
+      ? { steps: 13, frontSteps: 4, frontStep: 1, population: 36, elite: 10, iterations: 3, budgetMs: 12, frozenTargetSteps: 18 }
+      : profile === "max"
+        ? { steps: 18, frontSteps: 6, frontStep: 1, population: 64, elite: 16, iterations: 5, budgetMs: 20, frozenTargetSteps: 28 }
+        : undefined;
+    if (add === undefined) return `unknown planner profile: ${profile}`;
+    this.cfg.plannerCfg = { ...this.startCfg, ...add } as BotConfig["plannerCfg"];
+    for (const k of Object.keys(this.baseCfg)) delete this.baseCfg[k];
+    Object.assign(this.baseCfg, this.cfg.plannerCfg);
+    this.planner = null;
+    this.savePlannerCfg();
+    this.log(`planner profile: ${profile}`);
+    return `planner profile: ${profile}`;
   }
 
   setKnob(key: string, raw: unknown): string {
@@ -3695,6 +3725,7 @@ export class DdnetBot {
     for (const k of Object.keys(this.baseCfg)) delete this.baseCfg[k];
     Object.assign(this.baseCfg, next);
     this.planner = null;
+    this.savePlannerCfg();
     this.log(t(value === def ? "настройка {key} = {value} (по умолчанию)" : "настройка {key} = {value}", { key, value: JSON.stringify(value) }));
     return `${key} = ${JSON.stringify(value)}`;
   }
@@ -3753,6 +3784,19 @@ export class DdnetBot {
       const v = on ? "on" : "off";
       if ((cur as Record<string, unknown>).lowCpu === v) return;
       writeFileSync(file, JSON.stringify({ ...(cur as Record<string, unknown>), lowCpu: v }, null, 2));
+    } catch {
+
+    }
+  }
+
+  private savePlannerCfg(): void {
+    const file = this.cfg.settingsFile;
+    if (file === undefined) return;
+    try {
+      const cur = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, "")) as unknown;
+      if (cur === null || typeof cur !== "object" || Array.isArray(cur) || typeof (cur as Record<string, unknown>).server !== "string") return;
+      const plannerConfig = { ...(this.cfg.plannerCfg ?? {}) };
+      writeFileSync(file, JSON.stringify({ ...(cur as Record<string, unknown>), plannerConfig }, null, 2));
     } catch {
 
     }

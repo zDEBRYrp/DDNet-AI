@@ -33,7 +33,8 @@ for(const b of document.querySelectorAll('.tab')){
  b.addEventListener('click',()=>{
   for(const o of document.querySelectorAll('.tab'))o.className='tab'+(o===b?' on':'');
   for(const p of document.querySelectorAll('[data-pane]'))p.hidden=p.dataset.pane!==b.dataset.tab;
-  if(b.dataset.tab==='cfg'){pullConfig();pullKnobs();pullLaunch();}
+  if(b.dataset.tab==='cfg'){pullConfig();pullLaunch();}
+  if(b.dataset.tab==='planner')pullPlannerPanel();
   if(b.dataset.tab==='clips')pullClips();
   if(b.dataset.tab!=='clips')stopClip();
  });
@@ -363,6 +364,7 @@ $('#s_save').addEventListener('click',saveLaunch);
 if($('#s_save2'))$('#s_save2').addEventListener('click',saveLaunch);
 
 const KNOB_HELP={
+ blockAfk:t('Брать AFK-игроков как цели для блока'),
  steps:t('На сколько шагов вперёд бот считает ход'),
  planStep:t('Длина одного шага плана в тиках (50 тиков = 1 с)'),
  population:t('Сколько вариантов хода пробует за раунд'),
@@ -388,7 +390,7 @@ async function pullKnobs(){
  try{const list=await(await fetch('/api/knobs')).json();
   $('#knobs').innerHTML='<tr><th>'+t('настройка')+'</th><th>'+t('сейчас')+'</th><th>'+t('по умолчанию')+'</th><th>'+t('что это')+'</th></tr>'+
 
-   [...list].sort((a,b)=>(KNOB_HELP[b.key]?1:0)-(KNOB_HELP[a.key]?1:0)).map((k)=>'<tr class="'+(k.changed?'changed':'')+'"><td>'+esc(k.key)+'</td><td><input data-knob="'+esc(k.key)+'" value="'+esc(String(k.value))+'"></td><td class="num" style="color:var(--dim)">'+esc(String(k.def))+'</td><td class="help">'+esc(KNOB_HELP[k.key]||'')+'</td></tr>').join('');
+   [...list].filter((k)=>k.key!=='blockAfk').sort((a,b)=>(KNOB_HELP[b.key]?1:0)-(KNOB_HELP[a.key]?1:0)).map((k)=>'<tr class="'+(k.changed?'changed':'')+'"><td>'+esc(k.key)+'</td><td><input data-knob="'+esc(k.key)+'" value="'+esc(String(k.value))+'"></td><td class="num" style="color:var(--dim)">'+esc(String(k.def))+'</td><td class="help">'+esc(KNOB_HELP[k.key]||'')+'</td></tr>').join('');
   for(const inp of document.querySelectorAll('[data-knob]')){
    inp.addEventListener('change',async()=>{
     const key=inp.dataset.knob;const v=inp.value.trim();
@@ -396,6 +398,20 @@ async function pullKnobs(){
     pullKnobs();
    });
   }
+ }catch{}
+}
+async function pullPlannerPanel(){
+ try{
+  const [profiles,knobs]=await Promise.all([fetch('/api/planner-profiles').then((r)=>r.json()),fetch('/api/knobs').then((r)=>r.json())]);
+  $('#planner-profiles').innerHTML=(profiles||[]).map((p)=>'<button class="ghost" data-plan-profile="'+esc(p.id)+'" type="button" title="'+esc(p.note)+'">'+esc(p.name)+'</button>').join('');
+  for(const b of document.querySelectorAll('[data-plan-profile]'))b.addEventListener('click',async()=>{
+   const r=await fetch('/api/planner-profiles',{method:'POST',body:JSON.stringify({id:b.dataset.planProfile})});
+   const x=await r.json();$('#planner-note').textContent=tr(x.reply||'');pullPlannerPanel();
+  });
+  const afk=(knobs||[]).find((k)=>k.key==='blockAfk');
+  $('#planner-afk').checked=afk?afk.value!==false:true;
+  $('#planner-afk').onchange=async()=>{await fetch('/api/knobs',{method:'POST',body:JSON.stringify({key:'blockAfk',value:$('#planner-afk').checked})});pullPlannerPanel();};
+  pullKnobs();
  }catch{}
 }
 $('#tsound').addEventListener('click',()=>{muted=!muted;$('#tsound').className='ghost'+(muted?'':' on');if(!muted){audio();playSound(SND.CHAT_CLIENT,null)}});
@@ -413,6 +429,13 @@ async function tick(){
 
  if(d.boot&&d.boot!==boot){if(boot!==''){seenAt.clear();voteSeen=0;chatSeen=-1;logKey='';soundSeq=-1}boot=d.boot}
  const s=d.status,on=s.phase==='online';lastStatus=s;lastVersion=d.version||'';
+ const planTab=$('#plan-tab'),planPane=document.querySelector('[data-pane=planner]');
+ const plannerOn=s.brain==='planner';
+ if(planTab)planTab.hidden=!plannerOn;
+ if(!plannerOn&&planPane&&!planPane.hidden){
+  planPane.hidden=true;
+  const gameTab=document.querySelector('[data-tab=game]');if(gameTab){gameTab.className='tab on';for(const o of document.querySelectorAll('.tab'))if(o!==gameTab)o.className='tab';document.querySelector('[data-pane=game]').hidden=false;}
+ }
  $('#dot').className='dot '+(on?'on':s.phase==='connecting'?'':'off');
  $('#head').textContent=s.name+' — '+(on?s.server:(s.offlineReason||s.phase));
  const ver=d.version?t('версия {v}',{v:d.version.slice(0,7)}):t('версия неизвестна');

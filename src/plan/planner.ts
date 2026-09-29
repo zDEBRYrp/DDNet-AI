@@ -33,6 +33,8 @@ const CADENCE_MAX_TICKS = 8;
 const SHIELD_MAX_HOLD = 16;
 
 export type PlannerConfig = {
+  /** Whether automatic target selection may treat idle players as block targets. */
+  blockAfk?: boolean;
   steps?: number;
   planStep?: number;
 
@@ -221,6 +223,7 @@ function copyInput(into: PlayerInput, from: PlayerInput): void {
 
 export const PLANNER_DEFAULTS = {
 
+  blockAfk: true,
   steps: 9,
   planStep: 3,
   restAim: false,

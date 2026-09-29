@@ -150,6 +150,8 @@ export type WebBot = {
   knobs?: () => { key: string; value: unknown; def: unknown; changed: boolean }[];
   setKnob?: (key: string, value: unknown) => string;
   resetKnobs?: () => string;
+  plannerProfiles?: () => { id: string; name: string; note: string }[];
+  setPlannerProfile?: (id: unknown) => string;
 
   mapData?: () => { name: string; bytes: Uint8Array } | null;
 
@@ -513,6 +515,23 @@ export function startWebUi(bot: WebBot, port: number, version: string): Promise<
         } catch (err) {
           reply = err instanceof Error ? err.message : String(err);
         }
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ reply }));
+      });
+      return;
+    }
+    if (url.pathname === "/api/planner-profiles" && req.method !== "POST") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify(bot.plannerProfiles?.() ?? []));
+      return;
+    }
+    if (url.pathname === "/api/planner-profiles" && req.method === "POST") {
+      let raw = "";
+      req.on("data", (c) => { raw += String(c); });
+      req.on("end", () => {
+        let reply = "";
+        try { reply = bot.setPlannerProfile?.((JSON.parse(raw) as { id?: unknown }).id) ?? t("профили планировщика недоступны"); }
+        catch (err) { reply = err instanceof Error ? err.message : String(err); }
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
         res.end(JSON.stringify({ reply }));
       });
