@@ -2610,6 +2610,30 @@ export class DdnetBot {
         }
       }
 
+      // Holding a WB starts with reaching its actual guard tile.  Previously
+      // target selection ran first and, when a route was briefly unavailable,
+      // the bot fell back to ordinary combat at spawn.  That made a selected
+      // WB look like a spawn-block mode.  A manual target remains an explicit
+      // override; automatic fights wait until the assigned WB is reached.
+      const wb = this.wbHolding();
+      const wbSide = wb === null ? null : this.wbChooser.side;
+      if (this.cfg.targetName === undefined && wb !== null && wbSide !== null && !this.duelNow()) {
+        const here = { tx: Math.trunc(self.pos.x / 32), ty: Math.trunc(self.pos.y / 32) };
+        const spot = this.wbSpot(ownId, wb, wbSide, here);
+        if (!onWbSpot(here, spot)) {
+          if (this.rescueFriend(client, self)) return;
+          this.walkToWb(ownId, self);
+          if (this.nav !== null) {
+            this.driveNav(client, self);
+            return;
+          }
+          // No verified route yet: wait and retry next snapshot instead of
+          // starting a fight on the spawn platform.
+          this.applyInput(client, { ...emptyInput(), targetX: spot.tx * 32 + 16 - self.pos.x, targetY: spot.ty * 32 + 16 - self.pos.y, fire: 0, hook: 0, jump: 0, wantedWeapon: WEAPON_HAMMER + 1 }, self.activeWeapon);
+          return;
+        }
+      }
+
       const targetId = this.mode === "fight" ? (picked ?? this.pickTarget(snap, ownId, self.pos)) : -1;
       if (targetId !== this.targetId) {
         this.targetId = targetId;
